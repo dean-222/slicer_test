@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>FemurFracturePlanner</class>
+ <widget class="qMRMLWidget" name="FemurFracturePlanner">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>325</width>
+    <height>650</height>
+   </rect>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   
+   <!-- 1. Input CT Volume Selection -->
+   <item>
+    <widget class="ctkCollapsibleButton" name="inputCollapsibleButton">
+     <property name="text">
+      <string>1. Input CT Volume</string>
+     </property>
+     <layout class="QFormLayout" name="inputFormLayout">
+      <item row="0" column="0">
+       <widget class="QLabel" name="inputVolumeLabel">
+        <property name="text">
+         <string>Input Volume:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="qMRMLNodeComboBox" name="inputVolumeSelector">
+        <property name="toolTip">
+         <string>Select the input CT volume node.</string>
+        </property>
+        <property name="nodeTypes">
+         <stringlist notr="true">
+          <string>vtkMRMLScalarVolumeNode</string>
+         </stringlist>
+        </property>
+        <property name="showChildNodeTypes">
+         <bool>false</bool>
+        </property>
+        <property name="addEnabled">
+         <bool>false</bool>
+        </property>
+        <property name="removeEnabled">
+         <bool>false</bool>
+        </property>
+        <property name="SlicerParameterName" stdset="0">
+         <string>inputVolume</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+
+   <!-- 2. Real-time 3D Volume Rendering -->
+   <item>
+    <widget class="ctkCollapsibleButton" name="renderingCollapsibleButton">
+     <property name="text">
+      <string>2. 3D Volume Rendering (CT-Bone)</string>
+     </property>
+     <layout class="QVBoxLayout" name="renderingVLayout">
+      <!-- Enable Switch -->
+      <item>
+       <layout class="QHBoxLayout" name="switchHLayout">
+        <item>
+         <widget class="QLabel" name="enableRenderingLabel">
+          <property name="text">
+           <string>Enable 3D Volume Rendering:</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="volumeRenderingCheckBox">
+          <property name="toolTip">
+           <string>Toggle real-time GPU volume rendering of the CT volume.</string>
+          </property>
+          <property name="text">
+           <string/>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      
+      <!-- Live Threshold Control -->
+      <item>
+       <layout class="QFormLayout" name="thresholdFormLayout">
+        <item row="0" column="0">
+         <widget class="QLabel" name="thresholdLabel">
+          <property name="text">
+           <string>Threshold (HU):</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="ctkSliderWidget" name="thresholdSlider">
+          <property name="toolTip">
+           <string>Adjust bone visibility threshold in real-time.</string>
+          </property>
+          <property name="minimum">
+           <double>100</double>
+          </property>
+          <property name="maximum">
+           <double>1500</double>
+          </property>
+          <property name="value">
+           <double>200</double>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
+   </item>
+
+   <!-- 3. Embedded Segment Editor -->
+   <item>
+    <widget class="ctkCollapsibleButton" name="segmentEditorCollapsibleButton">
+     <property name="text">
+      <string>3. Embedded Segment Editor</string>
+     </property>
+     <layout class="QVBoxLayout" name="editorVLayout">
+      <!-- Anchor widget where slicer.qMRMLSegmentEditorWidget will be dynamically placed -->
+      <item>
+       <widget class="QWidget" name="segmentEditorAnchorWidget" native="true">
+        <property name="minimumSize">
+         <size>
+          <width>0</width>
+          <height>350</height>
+         </size>
+        </property>
+        <layout class="QVBoxLayout" name="anchorVLayout">
+         <property name="spacing">
+          <number>0</number>
+         </property>
+         <property name="leftMargin">
+          <number>0</number>
+         </property>
+         <property name="topMargin">
+          <number>0</number>
+         </property>
+         <property name="rightMargin">
+          <number>0</number>
+         </property>
+         <property name="bottomMargin">
+          <number>0</number>
+         </property>
+        </layout>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+
+   <item>
+    <spacer name="verticalSpacer">
+     <property name="orientation">
+      <enum>Qt::Vertical</enum>
+     </property>
+     <property name="sizeHint" stdset="0">
+      <size>
+       <width>20</width>
+       <height>40</height>
+      </size>
+     </property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+ <customwidgets>
+  <customwidget>
+   <class>qMRMLNodeComboBox</class>
+   <extends>QWidget</extends>
+   <header>qMRMLNodeComboBox.h</header>
+  </customwidget>
+  <customwidget>
+   <class>qMRMLWidget</class>
+   <extends>QWidget</extends>
+   <header>qMRMLWidget.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>ctkCollapsibleButton</class>
+   <extends>QWidget</extends>
+   <header>ctkCollapsibleButton.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>ctkSliderWidget</class>
+   <extends>QWidget</extends>
+   <header>ctkSliderWidget.h</header>
+  </customwidget>
+ </customwidgets>
+ <resources/>
+ <connections>
+  <connection>
+   <sender>FemurFracturePlanner</sender>
+   <signal>mrmlSceneChanged(vtkMRMLScene*)</signal>
+   <receiver>inputVolumeSelector</receiver>
+   <slot>setMRMLScene(vtkMRMLScene*)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>162</x>
+     <y>299</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>222</x>
+     <y>38</y>
+    </hint>
+   </hints>
+  </connection>
+ </connections>
+</ui>
