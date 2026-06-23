@@ -1,12 +1,35 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
 File Name: FemurFracturePlanner.ui
-Version: v0.200
+Version: v0.300
 Date: 2026-06-23
 Description: Femur Fracture Planner 모듈의 Qt UI 레이아웃 파일
 
 Version History:
 
+- v0.300 (2026-06-23)
+  - 6. Virtual Bone Reduction 내에 파편 조각 간 절단면을 직접 맞물려 밀착 정합시키는 Run Fracture Surface Snap 버튼(runSurfaceSnapButton) 추가
+- v0.200 (2026-06-23)
+  - 7. Fragment Manager 내부에 각 프래그먼트의 실시간 3D 위치(Translate) 및 회전(Rotation)을 표시해 주는 transformDisplayGroupBox UI 신설
+- v0.1260 (2026-06-23)
+  - 좌측 QScrollArea 스크롤바를 완전히 롤백(제거)하고 세로 창 크기 직접 확장 방식으로 회귀
+- v0.1250 (2026-06-23)
+  - 7. Fragment Manager 테이블 컬럼 개수 확장(5개) 및 수동 정렬 기즈모 컬럼을 위해 columnCount를 5로 변경
+- v0.700 (2026-06-23)
+  - 6번 가이드 모델 선택기 옆에 가시성 제어 버튼(guideVisibilityButton) 추가
+- v0.610 (2026-06-23)
+  - 팝업 다이얼로그 기본 세로 높이를 700에서 830으로 확장
+- v0.600 (2026-06-23)
+  - 7. Fragment Manager 섹션 하단에 일괄 초기화 버튼(clearModelsButton) 추가 및 QHBoxLayout으로 배치
+- v0.500 (2026-06-23)
+  - 5번부터 7번 단계를 오른쪽 컬럼으로 배치하는 2컬럼 레이아웃 적용 (가로 확장 850x700)
+  - 6번 가이드 모델 선택기 옆에 Add Data 버튼(loadGuideButton) 추가
+- v0.400 (2026-06-23)
+  - 7. Fragment Manager 섹션 및 QTableWidget 추가, 팝업 기본 크기 확장(420x850)
+- v0.301 (2026-06-23)
+  - UI XML 문법 오류 수정 (bottomMargin 부분 유실 복구)
+- v0.300 (2026-06-23)
+  - 6. Virtual Bone Reduction UI 섹션 및 위젯 추가 배치
 - v0.200 (2026-06-23)
   - DICOM 데이터베이스 로더 버튼(loadDicomButton) 추가 배치
 - v0.100 (2026-06-23)
@@ -21,36 +44,324 @@ Version History:
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>325</width>
-    <height>720</height>
+    <width>850</width>
+    <height>830</height>
    </rect>
   </property>
-  <layout class="QVBoxLayout" name="verticalLayout">
+  <layout class="QHBoxLayout" name="mainHLayout">
    
-   <!-- 1. Input CT Volume Selection with Eye Toggle & File Loader -->
+   <!-- Left Column (Steps 1 to 4) -->
    <item>
-    <widget class="ctkCollapsibleButton" name="inputCollapsibleButton">
-     <property name="text">
-      <string>1. Input CT Volume</string>
-     </property>
-     <layout class="QFormLayout" name="inputFormLayout">
-      <item row="0" column="0">
-       <widget class="QLabel" name="inputVolumeLabel">
-        <property name="text">
-         <string>Input Volume:</string>
-        </property>
+    <layout class="QVBoxLayout" name="leftVLayout">
+     
+     <!-- 1. Input CT Volume Selection with Eye Toggle & File Loader -->
+     <item>
+      <widget class="ctkCollapsibleButton" name="inputCollapsibleButton">
+       <property name="text">
+        <string>1. Input CT Volume</string>
+       </property>
+       <layout class="QFormLayout" name="inputFormLayout">
+        <item row="0" column="0">
+         <widget class="QLabel" name="inputVolumeLabel">
+          <property name="text">
+           <string>Input Volume:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <layout class="QHBoxLayout" name="volumeSelectHLayout">
+          <item>
+           <widget class="qMRMLNodeComboBox" name="inputVolumeSelector">
+            <property name="toolTip">
+             <string>Select the input CT volume node.</string>
+            </property>
+            <property name="nodeTypes">
+             <stringlist notr="true">
+              <string>vtkMRMLScalarVolumeNode</string>
+             </stringlist>
+            </property>
+            <property name="showChildNodeTypes">
+             <bool>false</bool>
+            </property>
+            <property name="addEnabled">
+             <bool>false</bool>
+            </property>
+            <property name="removeEnabled">
+             <bool>false</bool>
+            </property>
+            <property name="SlicerParameterName" stdset="0">
+             <string>inputVolume</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="volumeVisibilityButton">
+            <property name="text">
+             <string>Show</string>
+            </property>
+            <property name="checkable">
+             <bool>true</bool>
+            </property>
+            <property name="toolTip">
+             <string>Toggle volume visibility in slice viewers.</string>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>60</width>
+              <height>16777215</height>
+             </size>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item row="1" column="0" colspan="2">
+         <widget class="QPushButton" name="loadVolumeButton">
+          <property name="text">
+           <string>📁 Load CT Volume (File)</string>
+          </property>
+          <property name="toolTip">
+           <string>Load a CT volume file (.nrrd, .nii, .nii.gz, etc.) from local storage.</string>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="0" colspan="2">
+         <widget class="QPushButton" name="loadDicomButton">
+          <property name="text">
+           <string>📁 Load CT Volume (DICOM DB)</string>
+          </property>
+          <property name="toolTip">
+           <string>Open Slicer's DICOM database browser in a popup dialog to load volumes.</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+     </item>
+
+     <!-- 2. Real-time 3D Volume Rendering -->
+     <item>
+      <widget class="ctkCollapsibleButton" name="renderingCollapsibleButton">
+       <property name="text">
+        <string>2. 3D Volume Rendering (CT-Bone)</string>
+       </property>
+       <layout class="QVBoxLayout" name="renderingVLayout">
+        <item>
+         <layout class="QHBoxLayout" name="switchHLayout">
+          <item>
+           <widget class="QLabel" name="enableRenderingLabel">
+            <property name="text">
+             <string>Volume Rendering Visibility:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="volumeRenderingVisibilityButton">
+            <property name="text">
+             <string>👁️ Show</string>
+            </property>
+            <property name="checkable">
+             <bool>true</bool>
+            </property>
+            <property name="toolTip">
+             <string>Toggle 3D volume rendering visibility.</string>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>80</width>
+              <height>16777215</height>
+             </size>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QFormLayout" name="thresholdFormLayout">
+          <item row="0" column="0">
+           <widget class="QLabel" name="thresholdLabel">
+            <property name="text">
+             <string>Threshold (HU):</string>
+            </property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="ctkSliderWidget" name="thresholdSlider">
+            <property name="toolTip">
+             <string>Adjust bone visibility threshold in real-time.</string>
+            </property>
+            <property name="minimum">
+             <double>100</double>
+            </property>
+            <property name="maximum">
+             <double>1500</double>
+            </property>
+            <property name="value">
+             <double>200</double>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+       </layout>
+      </widget>
+     </item>
+
+     <!-- 3. Image Rotation Control -->
+     <item>
+      <widget class="ctkCollapsibleButton" name="rotationCollapsibleButton">
+       <property name="text">
+        <string>3. Live 3D Rotation Control</string>
+       </property>
+       <layout class="QVBoxLayout" name="rotationVLayout">
+        <item>
+         <widget class="QGroupBox" name="axisGroupBox">
+          <property name="title">
+           <string>Rotation Axis</string>
+          </property>
+          <layout class="QHBoxLayout" name="axisHLayout">
+           <item>
+            <widget class="QRadioButton" name="rotationXRadio">
+             <property name="text">
+              <string>X-Axis</string>
+             </property>
+             <property name="checked">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QRadioButton" name="rotationYRadio">
+             <property name="text">
+              <string>Y-Axis</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QRadioButton" name="rotationZRadio">
+             <property name="text">
+              <string>Z-Axis</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <layout class="QFormLayout" name="fineRotationLayout">
+          <item row="0" column="0">
+           <widget class="QLabel" name="angleLabel">
+            <property name="text">
+             <string>Angle (°):</string>
+            </property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="ctkSliderWidget" name="rotationAngleSlider">
+            <property name="toolTip">
+             <string>Rotate the volume interactively.</string>
+            </property>
+            <property name="minimum">
+             <double>-180</double>
+            </property>
+            <property name="maximum">
+             <double>180</double>
+            </property>
+            <property name="value">
+             <double>0</double>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="rotationButtonsLayout">
+          <item>
+           <widget class="QPushButton" name="resetRotationButton">
+            <property name="text">
+             <string>Reset (0°)</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="rotate90Button">
+            <property name="text">
+             <string>Rotate +90°</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+       </layout>
+      </widget>
+     </item>
+
+     <!-- 4. Embedded Segment Editor -->
+     <item>
+      <widget class="ctkCollapsibleButton" name="segmentEditorCollapsibleButton">
+       <property name="text">
+        <string>4. Embedded Segment Editor</string>
+       </property>
+       <layout class="QVBoxLayout" name="editorVLayout">
+        <item>
+         <widget class="QWidget" name="segmentEditorAnchorWidget" native="true">
+          <property name="minimumSize">
+           <size>
+            <width>0</width>
+            <height>350</height>
+           </size>
+          </property>
+          <layout class="QVBoxLayout" name="anchorVLayout">
+           <property name="spacing">
+            <number>0</number>
+           </property>
+           <property name="leftMargin">
+            <number>0</number>
+           </property>
+           <property name="topMargin">
+            <number>0</number>
+           </property>
+           <property name="rightMargin">
+            <number>0</number>
+           </property>
+           <property name="bottomMargin">
+            <number>0</number>
+           </property>
+          </layout>
+         </widget>
+        </item>
+       </layout>
        </widget>
       </item>
-      <item row="0" column="1">
-       <layout class="QHBoxLayout" name="volumeSelectHLayout">
-        <item>
-         <widget class="qMRMLNodeComboBox" name="inputVolumeSelector">
+     </layout>
+    </item>
+
+   <!-- Right Column (Steps 5 to 7) -->
+   <item>
+    <layout class="QVBoxLayout" name="rightVLayout">
+     
+     <!-- 5. Fracture Fragment Separation -->
+     <item>
+      <widget class="ctkCollapsibleButton" name="fragmentSeparationCollapsibleButton">
+       <property name="text">
+        <string>5. Fracture Fragment Separation</string>
+       </property>
+       <layout class="QFormLayout" name="separationFormLayout">
+        <item row="0" column="0">
+         <widget class="QLabel" name="targetSegmentationLabel">
+          <property name="text">
+           <string>Input Segmentation:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="qMRMLNodeComboBox" name="activeSegmentationSelector">
           <property name="toolTip">
-           <string>Select the input CT volume node.</string>
+           <string>Select the segmentation node to separate disjoint components.</string>
           </property>
           <property name="nodeTypes">
            <stringlist notr="true">
-            <string>vtkMRMLScalarVolumeNode</string>
+            <string>vtkMRMLSegmentationNode</string>
            </stringlist>
           </property>
           <property name="showChildNodeTypes">
@@ -62,325 +373,291 @@ Version History:
           <property name="removeEnabled">
            <bool>false</bool>
           </property>
-          <property name="SlicerParameterName" stdset="0">
-           <string>inputVolume</string>
+          <property name="noneEnabled">
+           <bool>true</bool>
           </property>
          </widget>
         </item>
-        <item>
-         <widget class="QPushButton" name="volumeVisibilityButton">
+        <item row="1" column="0" colspan="2">
+         <widget class="QPushButton" name="separateFragmentsButton">
           <property name="text">
-           <string>Show</string>
+           <string>Separate Bone Fragments</string>
           </property>
-          <property name="checkable">
-           <bool>true</bool>
-          </property>
-          <property name="toolTip">
-           <string>Toggle volume visibility in slice viewers.</string>
-          </property>
-          <property name="maximumSize">
-           <size>
-            <width>60</width>
-            <height>16777215</height>
-           </size>
+          <property name="styleSheet">
+           <string>font-weight: bold; background-color: #fff3e0;</string>
           </property>
          </widget>
         </item>
        </layout>
-      </item>
-      <item row="1" column="0" colspan="2">
-       <widget class="QPushButton" name="loadVolumeButton">
-        <property name="text">
-         <string>📁 Load CT Volume (File)</string>
-        </property>
-        <property name="toolTip">
-         <string>Load a CT volume file (.nrrd, .nii, .nii.gz, etc.) from local storage.</string>
-        </property>
-       </widget>
-      </item>
-      <item row="2" column="0" colspan="2">
-       <widget class="QPushButton" name="loadDicomButton">
-        <property name="text">
-         <string>📁 Load CT Volume (DICOM DB)</string>
-        </property>
-        <property name="toolTip">
-         <string>Open Slicer's DICOM database browser in a popup dialog to load volumes.</string>
-        </property>
-       </widget>
-      </item>
-     </layout>
-    </widget>
-   </item>
+      </widget>
+     </item>
 
-   <!-- 2. Real-time 3D Volume Rendering -->
-   <item>
-    <widget class="ctkCollapsibleButton" name="renderingCollapsibleButton">
-     <property name="text">
-      <string>2. 3D Volume Rendering (CT-Bone)</string>
-     </property>
-     <layout class="QVBoxLayout" name="renderingVLayout">
-      <!-- Enable Switch (Eye Icon Button) -->
-      <item>
-       <layout class="QHBoxLayout" name="switchHLayout">
-        <item>
-         <widget class="QLabel" name="enableRenderingLabel">
-          <property name="text">
-           <string>Volume Rendering Visibility:</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QPushButton" name="volumeRenderingVisibilityButton">
-          <property name="text">
-           <string>👁️ Show</string>
-          </property>
-          <property name="checkable">
-           <bool>true</bool>
-          </property>
-          <property name="toolTip">
-           <string>Toggle 3D volume rendering visibility.</string>
-          </property>
-          <property name="maximumSize">
-           <size>
-            <width>80</width>
-            <height>16777215</height>
-           </size>
-          </property>
-         </widget>
-        </item>
-       </layout>
-      </item>
-      
-      <!-- Live Threshold Control -->
-      <item>
-       <layout class="QFormLayout" name="thresholdFormLayout">
+     <!-- 6. Virtual Bone Reduction -->
+     <item>
+      <widget class="ctkCollapsibleButton" name="virtualReductionCollapsibleButton">
+       <property name="text">
+        <string>6. Virtual Bone Reduction</string>
+       </property>
+       <layout class="QFormLayout" name="reductionFormLayout">
         <item row="0" column="0">
-         <widget class="QLabel" name="thresholdLabel">
+         <widget class="QLabel" name="guideModelLabel">
           <property name="text">
-           <string>Threshold (HU):</string>
+           <string>Guide Model:</string>
           </property>
          </widget>
         </item>
         <item row="0" column="1">
-         <widget class="ctkSliderWidget" name="thresholdSlider">
+         <layout class="QHBoxLayout" name="guideSelectHLayout">
+          <item>
+           <widget class="qMRMLNodeComboBox" name="guideModelSelector">
+            <property name="toolTip">
+             <string>Select the template guide bone model (e.g. contralateral normal bone).</string>
+            </property>
+            <property name="nodeTypes">
+             <stringlist notr="true">
+              <string>vtkMRMLModelNode</string>
+             </stringlist>
+            </property>
+            <property name="showChildNodeTypes">
+             <bool>false</bool>
+            </property>
+            <property name="addEnabled">
+             <bool>false</bool>
+            </property>
+            <property name="removeEnabled">
+             <bool>false</bool>
+            </property>
+            <property name="noneEnabled">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="guideVisibilityButton">
+            <property name="text">
+             <string>Show</string>
+            </property>
+            <property name="checkable">
+             <bool>true</bool>
+            </property>
+            <property name="toolTip">
+             <string>Toggle guide model visibility in 3D and 2D viewers.</string>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>60</width>
+              <height>16777215</height>
+             </size>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="loadGuideButton">
+            <property name="text">
+             <string>📁 Add Data</string>
+            </property>
+            <property name="toolTip">
+             <string>Load a guide bone model file (.stl, .obj, .ply) from local storage.</string>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>85</width>
+              <height>16777215</height>
+             </size>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item row="1" column="0" colspan="2">
+         <widget class="QPushButton" name="mirrorGuideButton">
+          <property name="text">
+           <string>Mirror Guide (Flip X)</string>
+          </property>
           <property name="toolTip">
-           <string>Adjust bone visibility threshold in real-time.</string>
+           <string>Mirror the selected guide model along the X axis.</string>
           </property>
-          <property name="minimum">
-           <double>100</double>
-          </property>
-          <property name="maximum">
-           <double>1500</double>
-          </property>
-          <property name="value">
-           <double>200</double>
+          <property name="styleSheet">
+           <string>font-weight: bold; background-color: #e3f2fd;</string>
           </property>
          </widget>
         </item>
-       </layout>
-      </item>
-     </layout>
-    </widget>
-   </item>
-
-   <!-- 3. Image Rotation Control -->
-   <item>
-    <widget class="ctkCollapsibleButton" name="rotationCollapsibleButton">
-     <property name="text">
-      <string>3. Live 3D Rotation Control</string>
-     </property>
-     <layout class="QVBoxLayout" name="rotationVLayout">
-      <!-- Axis Selection -->
-      <item>
-       <widget class="QGroupBox" name="axisGroupBox">
-        <property name="title">
-         <string>Rotation Axis</string>
-        </property>
-        <layout class="QHBoxLayout" name="axisHLayout">
-         <item>
-          <widget class="QRadioButton" name="rotationXRadio">
-           <property name="text">
-            <string>X-Axis</string>
-           </property>
-           <property name="checked">
-            <bool>true</bool>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QRadioButton" name="rotationYRadio">
-           <property name="text">
-            <string>Y-Axis</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QRadioButton" name="rotationZRadio">
-           <property name="text">
-            <string>Z-Axis</string>
-           </property>
-          </widget>
-         </item>
-        </layout>
-       </widget>
-      </item>
-      
-      <!-- Fine Rotation Slider -->
-      <item>
-       <layout class="QFormLayout" name="fineRotationLayout">
-        <item row="0" column="0">
-         <widget class="QLabel" name="angleLabel">
+        <item row="2" column="0" colspan="2">
+         <widget class="QPushButton" name="runSurfaceSnapButton">
           <property name="text">
-           <string>Angle (°):</string>
+           <string>Run Fracture Surface Snap</string>
           </property>
-         </widget>
-        </item>
-        <item row="0" column="1">
-         <widget class="ctkSliderWidget" name="rotationAngleSlider">
           <property name="toolTip">
-           <string>Rotate the volume interactively.</string>
+           <string>Align the fracture surfaces of the fragments directly before guide reduction.</string>
           </property>
-          <property name="minimum">
-           <double>-180</double>
+          <property name="styleSheet">
+           <string>font-weight: bold; background-color: #fff8e1; border: 1px solid #ffe082; padding: 3px;</string>
           </property>
-          <property name="maximum">
-           <double>180</double>
+         </widget>
+        </item>
+        <item row="3" column="0" colspan="2">
+         <widget class="QPushButton" name="runIcpReductionButton">
+          <property name="text">
+           <string>Run ICP Auto-Reduction</string>
           </property>
-          <property name="value">
-           <double>0</double>
+          <property name="toolTip">
+           <string>Automatically align separated fragment models to the guide model using ICP.</string>
+          </property>
+          <property name="styleSheet">
+           <string>font-weight: bold; background-color: #e8f5e9;</string>
           </property>
          </widget>
         </item>
        </layout>
-      </item>
-      
-      <!-- Reset & Rapid Buttons -->
-      <item>
-       <layout class="QHBoxLayout" name="rotationButtonsLayout">
+      </widget>
+     </item>
+
+     <!-- 7. Fragment Manager -->
+     <item>
+      <widget class="ctkCollapsibleButton" name="fragmentManagerCollapsibleButton">
+       <property name="text">
+        <string>7. Fragment Manager</string>
+       </property>
+       <layout class="QVBoxLayout" name="managerVLayout">
         <item>
-         <widget class="QPushButton" name="resetRotationButton">
-          <property name="text">
-           <string>Reset (0°)</string>
+         <widget class="QTableWidget" name="fragmentTableWidget">
+          <property name="minimumSize">
+           <size>
+            <width>0</width>
+            <height>180</height>
+           </size>
+          </property>
+          <property name="columnCount">
+           <number>5</number>
           </property>
          </widget>
         </item>
         <item>
-         <widget class="QPushButton" name="rotate90Button">
-          <property name="text">
-           <string>Rotate +90°</string>
+         <widget class="QGroupBox" name="transformDisplayGroupBox">
+          <property name="title">
+           <string>Selected Fragment Position &amp; Rotation (Real-time)</string>
           </property>
+          <property name="styleSheet">
+           <string>QGroupBox { font-weight: bold; color: #1565c0; border: 1px solid #bbdefb; border-radius: 5px; margin-top: 10px; padding-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 3px; }</string>
+          </property>
+          <layout class="QFormLayout" name="transformFormLayout">
+           <property name="horizontalSpacing">
+            <number>15</number>
+           </property>
+           <property name="verticalSpacing">
+            <number>8</number>
+           </property>
+           <item row="0" column="0">
+            <widget class="QLabel" name="selectedNameLabel">
+             <property name="text">
+              <string>Selected Fragment:</string>
+             </property>
+             <property name="styleSheet">
+              <string>font-weight: bold;</string>
+             </property>
+            </widget>
+           </item>
+           <item row="0" column="1">
+            <widget class="QLineEdit" name="selectedNameValue">
+             <property name="readOnly">
+              <bool>true</bool>
+             </property>
+             <property name="text">
+              <string>None (Select a row in table)</string>
+             </property>
+             <property name="styleSheet">
+              <string>background-color: #f5f5f5; border: none; font-weight: bold; color: #555;</string>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="0">
+            <widget class="QLabel" name="positionLabel">
+             <property name="text">
+              <string>Position (X, Y, Z):</string>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="1">
+            <widget class="QLineEdit" name="positionValue">
+             <property name="readOnly">
+              <bool>true</bool>
+             </property>
+             <property name="text">
+              <string>N/A</string>
+             </property>
+             <property name="styleSheet">
+              <string>background-color: #e8f5e9; border: 1px solid #a5d6a7; border-radius: 3px; font-family: Courier New; font-size: 11pt; font-weight: bold; color: #2e7d32; padding: 3px;</string>
+             </property>
+            </widget>
+           </item>
+           <item row="2" column="0">
+            <widget class="QLabel" name="rotationLabel">
+             <property name="text">
+              <string>Rotation (R, P, Y):</string>
+             </property>
+            </widget>
+           </item>
+           <item row="2" column="1">
+            <widget class="QLineEdit" name="rotationValue">
+             <property name="readOnly">
+              <bool>true</bool>
+             </property>
+             <property name="text">
+              <string>N/A</string>
+             </property>
+             <property name="styleSheet">
+              <string>background-color: #fff3e0; border: 1px solid #ffcc80; border-radius: 3px; font-family: Courier New; font-size: 11pt; font-weight: bold; color: #e65100; padding: 3px;</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
          </widget>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="managerButtonsHLayout">
+          <item>
+           <widget class="QPushButton" name="refreshManagerButton">
+            <property name="text">
+             <string>🔄 Refresh List</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="clearModelsButton">
+            <property name="text">
+             <string>🗑️ Clear All Fragments</string>
+            </property>
+            <property name="toolTip">
+             <string>Remove all separated fragment and mirrored model nodes from the scene.</string>
+            </property>
+            <property name="styleSheet">
+             <string>font-weight: bold; background-color: #ffebee; color: #c62828;</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
         </item>
        </layout>
-      </item>
-     </layout>
-    </widget>
+      </widget>
+     </item>
+
+     <!-- Spacer to push everything up in the right column -->
+     <item>
+      <spacer name="verticalSpacer">
+       <property name="orientation">
+        <enum>Qt::Vertical</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>20</width>
+         <height>40</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+    </layout>
    </item>
 
-   <!-- 4. Embedded Segment Editor -->
-   <item>
-    <widget class="ctkCollapsibleButton" name="segmentEditorCollapsibleButton">
-     <property name="text">
-      <string>4. Embedded Segment Editor</string>
-     </property>
-     <layout class="QVBoxLayout" name="editorVLayout">
-      <!-- Anchor widget where slicer.qMRMLSegmentEditorWidget will be dynamically placed -->
-      <item>
-       <widget class="QWidget" name="segmentEditorAnchorWidget" native="true">
-        <property name="minimumSize">
-         <size>
-          <width>0</width>
-          <height>350</height>
-         </size>
-        </property>
-        <layout class="QVBoxLayout" name="anchorVLayout">
-         <property name="spacing">
-          <number>0</number>
-         </property>
-         <property name="leftMargin">
-          <number>0</number>
-         </property>
-         <property name="topMargin">
-          <number>0</number>
-         </property>
-         <property name="rightMargin">
-          <number>0</number>
-         </property>
-         <property name="bottomMargin">
-          <number>0</number>
-         </property>
-        </layout>
-       </widget>
-      </item>
-     </layout>
-    </widget>
-   </item>
-
-   <!-- 5. Fracture Fragment Separation -->
-   <item>
-    <widget class="ctkCollapsibleButton" name="fragmentSeparationCollapsibleButton">
-     <property name="text">
-      <string>5. Fracture Fragment Separation</string>
-     </property>
-     <layout class="QFormLayout" name="separationFormLayout">
-      <item row="0" column="0">
-       <widget class="QLabel" name="targetSegmentationLabel">
-        <property name="text">
-         <string>Input Segmentation:</string>
-        </property>
-       </widget>
-      </item>
-      <item row="0" column="1">
-       <widget class="qMRMLNodeComboBox" name="activeSegmentationSelector">
-        <property name="toolTip">
-         <string>Select the segmentation node to separate disjoint components.</string>
-        </property>
-        <property name="nodeTypes">
-         <stringlist notr="true">
-          <string>vtkMRMLSegmentationNode</string>
-         </stringlist>
-        </property>
-        <property name="showChildNodeTypes">
-         <bool>false</bool>
-        </property>
-        <property name="addEnabled">
-         <bool>false</bool>
-        </property>
-        <property name="removeEnabled">
-         <bool>false</bool>
-        </property>
-        <property name="noneEnabled">
-         <bool>true</bool>
-        </property>
-       </widget>
-      </item>
-      <item row="1" column="0" colspan="2">
-       <widget class="QPushButton" name="separateFragmentsButton">
-        <property name="text">
-         <string>Separate Bone Fragments</string>
-        </property>
-        <property name="styleSheet">
-         <string>font-weight: bold; background-color: #fff3e0;</string>
-        </property>
-       </widget>
-      </item>
-     </layout>
-    </widget>
-   </item>
-
-   <item>
-    <spacer name="verticalSpacer">
-     <property name="orientation">
-      <enum>Qt::Vertical</enum>
-     </property>
-     <property name="sizeHint" stdset="0">
-      <size>
-       <width>20</width>
-       <height>40</height>
-      </size>
-     </property>
-    </spacer>
-   </item>
   </layout>
  </widget>
  <customwidgets>
@@ -438,6 +715,22 @@ Version History:
     <hint type="destinationlabel">
      <x>222</x>
      <y>500</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>FemurFracturePlanner</sender>
+   <signal>mrmlSceneChanged(vtkMRMLScene*)</signal>
+   <receiver>guideModelSelector</receiver>
+   <slot>setMRMLScene(vtkMRMLScene*)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>162</x>
+     <y>299</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>222</x>
+     <y>600</y>
     </hint>
    </hints>
   </connection>
