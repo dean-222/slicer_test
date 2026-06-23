@@ -1,11 +1,13 @@
 """
 File Name: FemurFracturePlanner.py
-Version: v0.305
+Version: v0.400
 Date: 2026-06-23
 Description: 대퇴골 골절 수술 계획을 위한 3D Slicer 모듈 GUI 및 비즈니스 로직 제어 클래스
 
 Version History:
 
+- v0.400 (2026-06-23)
+  - 3D 회전 제어(Live Rotation) 시 CT 볼륨뿐 아니라 세그멘테이션 메쉬 및 뼈 파편(Model) 노드까지 실시간 동기화 회전 연동
 - v0.305 (2026-06-23)
   - 모듈 초기화/씬 변경 시 SegmentEditorNode 미지정 상태의 호출 예외 방지를 위한 onInputVolumeChanged 방어 코드 보강
 - v0.304 (2026-06-23)
@@ -604,7 +606,8 @@ class FemurFracturePlannerLogic(ScriptedLoadableModuleLogic):
         displayNode.Modified()
 
     def rotateVolume(self, volumeNode: vtkMRMLScalarVolumeNode, axis: str, angle: float) -> None:
-        """선택된 볼륨 노드에 선형 변환 노드(vtkMRMLLinearTransformNode)를 연결하고 회전을 적용합니다."""
+        """선택된 볼륨 노드에 선형 변환 노드(vtkMRMLLinearTransformNode)를 연결하고 회전을 적용합니다.
+        세그멘테이션 노드 및 뼈 파편(Femur_Fragment) 모델 노드까지 동기화하여 일괄 회전시킵니다."""
         if not volumeNode:
             return
 
@@ -616,6 +619,21 @@ class FemurFracturePlannerLogic(ScriptedLoadableModuleLogic):
             volumeNode.SetAndObserveTransformNodeID(transformNode.GetID())
             logging.info(f"Created new linear transform node for '{volumeNode.GetName()}'.")
 
+        # 1. 씬 내의 모든 vtkMRMLSegmentationNode를 동일한 변환 노드 아래에 배치
+        segmentationNodes = slicer.mrmlScene.GetNodesByClass("vtkMRMLSegmentationNode")
+        for i in range(segmentationNodes.GetNumberOfItems()):
+            segNode = segmentationNodes.GetItemAsObject(i)
+            if segNode.GetParentTransformNode() != transformNode:
+                segNode.SetAndObserveTransformNodeID(transformNode.GetID())
+
+        # 2. 5단계 분리 기능으로 추출된 뼈 fragment 모델 노드(vtkMRMLModelNode)들도 동일한 변환 노드 아래에 배치
+        modelNodes = slicer.mrmlScene.GetNodesByClass("vtkMRMLModelNode")
+        for i in range(modelNodes.GetNumberOfItems()):
+            modelNode = modelNodes.GetItemAsObject(i)
+            if modelNode.GetName().startswith("Femur_Fragment") and modelNode.GetParentTransformNode() != transformNode:
+                modelNode.SetAndObserveTransformNodeID(transformNode.GetID())
+
+        # 변환 행렬 업데이트
         transform = vtk.vtkTransform()
         if axis == "X":
             transform.RotateX(angle)
@@ -628,7 +646,7 @@ class FemurFracturePlannerLogic(ScriptedLoadableModuleLogic):
         transform.GetMatrix(matrix)
         
         transformNode.SetMatrixTransformToParent(matrix)
-        logging.debug(f"Rotated volume '{volumeNode.GetName()}' around {axis}-Axis by {angle:.1f}°")
+        logging.debug(f"Rotated volume and sync nodes around {axis}-Axis by {angle:.1f}°")
 
     def separateBoneFragments(self, segmentationNode: vtkMRMLSegmentationNode) -> int:
         """
