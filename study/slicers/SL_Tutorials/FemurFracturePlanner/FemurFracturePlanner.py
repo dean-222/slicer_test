@@ -1,6 +1,36 @@
+"""
+File Name: FemurFracturePlanner.py
+Version: v0.305
+Date: 2026-06-23
+Description: 대퇴골 골절 수술 계획을 위한 3D Slicer 모듈 GUI 및 비즈니스 로직 제어 클래스
+
+Version History:
+
+- v0.305 (2026-06-23)
+  - 모듈 초기화/씬 변경 시 SegmentEditorNode 미지정 상태의 호출 예외 방지를 위한 onInputVolumeChanged 방어 코드 보강
+- v0.304 (2026-06-23)
+  - NodeAddedEvent 문자열 ID 전달에 따른 AttributeError 및 SegmentEditor 'SetSourceVolumeNode' 설정 에러 버그 수정
+- v0.303 (2026-06-23)
+  - qSlicerApplication에 openDICOMBrowser 속성이 누락되어 발생하는 AttributeError 수정 (ActionOpenDICOMBrowser QAction 트리거 방식으로 교체)
+- v0.302 (2026-06-23)
+  - PythonQt QFileDialog.getOpenFileName 반환값 언팩 오류(ValueError) 수정 및 onLoadDicomClicked에 slicer.app.openDICOMBrowser() 도입
+- v0.301 (2026-06-23)
+  - PythonQt 래핑 한계로 인한 closeEvent 동적 대입 AttributeError 오류 수정 (PlannerDialog 상속 클래스 신설)
+- v0.300 (2026-06-23)
+  - 모듈 UI를 3D Slicer 왼쪽 모듈 패널에서 독립된 팝업 대화상자(QDialog) 창으로 분리 및 동기화 구현
+- v0.200 (2026-06-23)
+  - Slicer 내장 DICOM 데이터베이스 팝업 로더 기능 추가 (loadDicomButton 및 slicer.mrmlScene.NodeAddedEvent 옵저버 연동)
+- v0.101 (2026-06-23)
+  - onLoadVolumeClicked 내 QFileDialog 반환 언팩 시 local '_' 변수 충돌에 의한 UnboundLocalError 버그 수정
+- v0.100 (2026-06-23)
+  - 실시간 CT GPU 볼륨 렌더링, 3D 회전 제어, 내장 세그먼트 에디터 위젯 임베딩 및 다이렉트 파일 로더 기능 추가
+- v0.000 (2026-06-23)
+  - 최초 작성
+"""
 import logging
 import os
 import vtk
+import qt
 import slicer
 from slicer.i18n import tr as _
 from slicer.i18n import translate
@@ -13,6 +43,7 @@ from slicer.parameterNodeWrapper import (
 # Slicer 노드 타입 참조
 from slicer import vtkMRMLScalarVolumeNode
 from slicer import vtkMRMLLinearTransformNode
+from slicer import vtkMRMLSegmentationNode
 
 #
 # FemurFracturePlanner (메인 모듈 메타데이터 클래스)
@@ -41,6 +72,19 @@ class FemurFracturePlannerParameterNode:
 
 
 #
+# PlannerDialog (독립 팝업 윈도우용 커스텀 QDialog 클래스)
+#
+class PlannerDialog(qt.QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        
+    def closeEvent(self, event):
+        """창 닫기(X) 시 창을 메모리에서 파괴하지 않고 감추기만 처리하여 상태를 보존합니다."""
+        event.ignore()
+        self.hide()
+
+
+#
 # FemurFracturePlannerWidget (GUI 제어 및 임베딩 클래스)
 #
 class FemurFracturePlannerWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
@@ -51,6 +95,9 @@ class FemurFracturePlannerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
         self._parameterNode = None
         self._parameterNodeGuiTag = None
         
+        # 독립 팝업 다이어로그 인스턴스 관리 변수
+        self.plannerDialog = None
+        
         # 내장 세그먼트 에디터 인스턴스 관리 변수
         self.segmentEditorWidget = None
         self.segmentEditorNode = None
@@ -58,13 +105,36 @@ class FemurFracturePlannerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
     def setup(self) -> None:
         ScriptedLoadableModuleWidget.setup(self)
 
-        # UI 파일 로드
+        # 1. 팝업을 위한 독립 커스텀 QDialog 생성 및 설정
+        self.plannerDialog = PlannerDialog(slicer.util.mainWindow())
+        self.plannerDialog.setWindowTitle("Femur Fracture Planner Window")
+        self.plannerDialog.setObjectName("FemurFracturePlannerDialog")
+        self.plannerDialog.setModal(False)
+        self.plannerDialog.setWindowFlags(qt.Qt.Window | qt.Qt.WindowTitleHint | qt.Qt.WindowCloseButtonHint | qt.Qt.CustomizeWindowHint)
+
+        # 다이얼로그 레이아웃 정의
+        dialogLayout = qt.QVBoxLayout(self.plannerDialog)
+        dialogLayout.setContentsMargins(5, 5, 5, 5)
+
+        # UI 파일 로드하여 다이얼로그 레이아웃에 탑재
         uiWidget = slicer.util.loadUI(self.resourcePath("UI/FemurFracturePlanner.ui"))
-        self.layout.addWidget(uiWidget)
+        dialogLayout.addWidget(uiWidget)
         self.ui = slicer.util.childWidgetVariables(uiWidget)
 
         # 씬 세팅
         uiWidget.setMRMLScene(slicer.mrmlScene)
+
+        # 2. 원래 Slicer 왼쪽 모듈 패널에는 안내 라벨과 팝업 창 다시 열기 버튼 배치
+        infoLabel = qt.QLabel("Femur Fracture Planner is running in an independent popup window.")
+        infoLabel.setStyleSheet("font-weight: bold; color: #2e7d32; margin-top: 15px; margin-bottom: 10px;")
+        infoLabel.setWordWrap(True)
+        self.layout.addWidget(infoLabel)
+
+        self.openPlannerButton = qt.QPushButton("Open Planner Window")
+        self.openPlannerButton.setFixedHeight(40)
+        self.openPlannerButton.setStyleSheet("font-weight: bold; background-color: #e8f5e9;")
+        self.openPlannerButton.connect("clicked(bool)", self.onOpenPlannerWindowClicked)
+        self.layout.addWidget(self.openPlannerButton)
 
         # 로직 인스턴스 생성
         self.logic = FemurFracturePlannerLogic()
@@ -73,11 +143,16 @@ class FemurFracturePlannerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
         self.addObserver(slicer.mrmlScene, slicer.mrmlScene.StartCloseEvent, self.onSceneStartClose)
         self.addObserver(slicer.mrmlScene, slicer.mrmlScene.EndCloseEvent, self.onSceneEndClose)
 
-        # 1. 입력 볼륨 선택 변경 및 가시성 제어 연결
+        # 1. 입력 볼륨 선택 변경, 가시성 제어 및 직접 파일/DICOM 로드 연결
         self.ui.inputVolumeSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onInputVolumeChanged)
         self.ui.volumeVisibilityButton.connect("toggled(bool)", self.onVolumeVisibilityToggled)
+        self.ui.loadVolumeButton.connect("clicked(bool)", self.onLoadVolumeClicked)
+        self.ui.loadDicomButton.connect("clicked(bool)", self.onLoadDicomClicked)
 
-        # 2. 실시간 3D 볼륨 렌더링 이벤트 연결 (체크박스 대신 눈 아이콘 푸시버튼 연동)
+        # 씬에 볼륨 노드가 새로 추가되는 이벤트 구독 (DICOM 등 외부 로딩 자동 감지)
+        self.addObserver(slicer.mrmlScene, slicer.mrmlScene.NodeAddedEvent, self.onNodeAdded)
+
+        # 2. 실시간 3D 볼륨 렌더링 이벤트 연결 (눈 아이콘 푸시버튼 연동)
         self.ui.volumeRenderingVisibilityButton.connect("toggled(bool)", self.onVolumeRenderingToggled)
         self.ui.thresholdSlider.connect("valueChanged(double)", self.onThresholdSliderChanged)
 
@@ -94,6 +169,9 @@ class FemurFracturePlannerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
         # 4. 내장 세그먼트 에디터 위젯 동적 생성 및 배치
         self.createEmbeddedSegmentEditor()
 
+        # 5. 골절 파편 분리 버튼 이벤트 연결
+        self.ui.separateFragmentsButton.connect("clicked(bool)", self.onSeparateFragmentsClicked)
+
         # 파라미터 노드 초기화
         self.initializeParameterNode()
 
@@ -103,6 +181,9 @@ class FemurFracturePlannerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
         UI 레이아웃의 segmentEditorAnchorWidget 내에 통째로 삽입합니다.
         """
         logging.info("Initializing embedded Segment Editor widget...")
+        
+        # Slicer의 원래 Segment Editor 모듈을 백그라운드에서 강제 초기화하여 이펙트 리스트를 로드합니다.
+        slicer.modules.segmenteditor.widgetRepresentation()
         
         # 위젯 생성
         self.segmentEditorWidget = slicer.qMRMLSegmentEditorWidget()
@@ -123,6 +204,10 @@ class FemurFracturePlannerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
         """모듈 종료 또는 소멸 시 할당된 리소스 정리"""
         self.removeObservers()
         self.destroyEmbeddedSegmentEditor()
+        if self.plannerDialog:
+            self.plannerDialog.close()
+            self.plannerDialog.deleteLater()
+            self.plannerDialog = None
 
     def destroyEmbeddedSegmentEditor(self) -> None:
         """임베디드 세그먼트 에디터 위젯 및 관련 파라미터 노드 해제"""
@@ -145,11 +230,30 @@ class FemurFracturePlannerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
             self.segmentEditorNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLSegmentEditorNode")
             self.segmentEditorNode.SetName("FemurFracturePlanner_SegmentEditorNode")
             
+        # 편의 기능: 씬에 이미 세그먼트 노드가 있으면 분리용 콤보박스 및 에디터에 자동 매핑
+        segNode = self.ui.activeSegmentationSelector.currentNode()
+        if not segNode:
+            segNode = slicer.mrmlScene.GetFirstNodeByClass("vtkMRMLSegmentationNode")
+            if not segNode:
+                # 씬에 세그먼테이션 노드가 아예 없으면 자동으로 신설하여 매핑
+                segNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLSegmentationNode")
+                segNode.SetName("Femur_Segmentation")
+                segNode.CreateDefaultDisplayNodes()
+            self.ui.activeSegmentationSelector.setCurrentNode(segNode)
+
         if self.segmentEditorWidget:
+            # Slicer C++ 에디터 가이드라인 준수: MRMLSegmentEditorNode -> SegmentationNode -> SourceVolumeNode 순으로 지정
             self.segmentEditorWidget.setMRMLSegmentEditorNode(self.segmentEditorNode)
+            self.segmentEditorWidget.setSegmentationNode(segNode)
             inputNode = self.ui.inputVolumeSelector.currentNode()
             if inputNode:
                 self.segmentEditorWidget.setSourceVolumeNode(inputNode)
+
+        # 모듈 진입 시 독립 다이얼로그 창 강제 노출
+        if self.plannerDialog:
+            self.plannerDialog.show()
+            self.plannerDialog.raise_()
+            self.plannerDialog.activateWindow()
 
     def exit(self) -> None:
         """사용자가 다른 모듈 화면으로 이동 시 호출"""
@@ -165,14 +269,22 @@ class FemurFracturePlannerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
             slicer.mrmlScene.RemoveNode(self.segmentEditorNode)
             self.segmentEditorNode = None
 
+        # 모듈에서 나갈 시 독립 다이얼로그 창 숨기기
+        if self.plannerDialog:
+            self.plannerDialog.hide()
+
     def onSceneStartClose(self, caller, event) -> None:
         self.setParameterNode(None)
         self.destroyEmbeddedSegmentEditor()
+        if self.plannerDialog:
+            self.plannerDialog.hide()
 
     def onSceneEndClose(self, caller, event) -> None:
         if self.parent.isEntered:
             self.initializeParameterNode()
             self.createEmbeddedSegmentEditor()
+            if self.plannerDialog:
+                self.plannerDialog.show()
 
     def initializeParameterNode(self) -> None:
         self.setParameterNode(self.logic.getParameterNode())
@@ -195,7 +307,29 @@ class FemurFracturePlannerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
 
     def onInputVolumeChanged(self, node) -> None:
         """입력 CT 볼륨이 바뀌면 볼륨 렌더링 대상 및 내장 에디터 입력 대상을 갱신합니다."""
-        if self.segmentEditorWidget and node:
+        # 에디터 위젯이 초기 생성되지 않은 레이아웃 로딩 단계라면 예외 처리를 위해 즉시 리턴
+        if not self.segmentEditorWidget:
+            return
+
+        if node:
+            # 1. SegmentEditorNode (파라미터 세션 노드) 존재 여부 검사 및 선바인딩
+            if not self.segmentEditorNode:
+                self.segmentEditorNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLSegmentEditorNode")
+                self.segmentEditorNode.SetName("FemurFracturePlanner_SegmentEditorNode")
+            self.segmentEditorWidget.setMRMLSegmentEditorNode(self.segmentEditorNode)
+
+            # 2. SegmentationNode (세그먼테이션 노드) 존재 여부 검사 및 바인딩
+            segNode = self.ui.activeSegmentationSelector.currentNode()
+            if not segNode:
+                segNode = slicer.mrmlScene.GetFirstNodeByClass("vtkMRMLSegmentationNode")
+                if not segNode:
+                    segNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLSegmentationNode")
+                    segNode.SetName("Femur_Segmentation")
+                    segNode.CreateDefaultDisplayNodes()
+                self.ui.activeSegmentationSelector.setCurrentNode(segNode)
+            self.segmentEditorWidget.setSegmentationNode(segNode)
+
+            # 3. 마지막으로 입력 볼륨 노드 설정 (에러 방지 바인딩 순서 준수)
             self.segmentEditorWidget.setSourceVolumeNode(node)
             
         # 가시성 버튼이 켜진 상태(Show)라면 새 볼륨을 뷰어 화면에 자동으로 매핑
@@ -263,6 +397,76 @@ class FemurFracturePlannerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
         
         self.logic.adjustVolumeRenderingThreshold(inputNode, value)
 
+    def onLoadVolumeClicked(self) -> None:
+        """1단계: 로컬 드라이브의 CT 볼륨 파일을 파일 다이얼로그를 통해 로드합니다."""
+        # 파일 열기 대화상자 호출 (PythonQt 환경에 맞게 단일 문자열 리턴 처리 및 parent는 mainWindow로 수정)
+        filePath = qt.QFileDialog.getOpenFileName(
+            slicer.util.mainWindow(),
+            _("Select CT Volume File"),
+            "",
+            "Volume Files (*.nrrd *.nii *.nii.gz *.mha *.mhd *.dcm)"
+        )
+        
+        if not filePath:
+            return
+            
+        logging.info(f"Direct volume loading triggered for: '{filePath}'")
+        
+        # 볼륨 로딩 실행 (대기 마우스 커서 적용)
+        with slicer.util.tryWithErrorDisplay(_("Failed to load CT volume file."), waitCursor=True):
+            loadedNode = slicer.util.loadVolume(filePath)
+            if loadedNode:
+                # 선택 콤보박스를 새로 로드된 볼륨 노드로 자동 세팅
+                self.ui.inputVolumeSelector.setCurrentNode(loadedNode)
+                # 영상이 로드되면 자동으로 슬라이스 가시성(Show) 토글을 활성화하여 화면에 표시합니다.
+                self.ui.volumeVisibilityButton.checked = True
+                slicer.util.infoDisplay(_(f"Successfully loaded CT volume: '{loadedNode.GetName()}'"))
+
+    def onLoadDicomClicked(self) -> None:
+        """1.5단계: Slicer 내장 DICOM 데이터베이스 브라우저를 독립 팝업 형태로 화면에 노출합니다."""
+        logging.info("Opening Slicer's DICOM database browser in popup...")
+        try:
+            # Slicer 메인 윈도우에서 DICOM 브라우저 열기 액션(QAction)을 검색하여 실행
+            mainWindow = slicer.util.mainWindow()
+            if mainWindow:
+                dicomAction = mainWindow.findChild('QAction', 'ActionOpenDICOMBrowser')
+                if dicomAction:
+                    dicomAction.trigger()
+                    return
+            
+            # Fallback: 액션을 찾을 수 없거나 메인 UI 미작동 시, 내장 DICOM 모듈 탭으로 다이렉트 전환
+            slicer.util.selectModule('DICOM')
+        except Exception as e:
+            slicer.util.errorDisplay(_(f"Failed to open DICOM Browser: {e}"))
+
+    def onNodeAdded(self, caller, event) -> None:
+        """씬에 새로운 노드가 로드되었을 때, ScalarVolumeNode일 경우 입력 볼륨으로 자동 연결하는 이벤트 핸들러"""
+        node = event
+        # Slicer의 NodeAddedEvent 등에서 event가 vtkMRMLNode가 아닌 노드 ID 문자열로 넘어올 수 있음
+        if isinstance(node, str):
+            node = slicer.mrmlScene.GetNodeByID(node)
+            
+        if not node:
+            return
+        
+        # 새로 추가된 노드가 스칼라 볼륨 노드(CT 영상 등)인지 확인
+        if node.IsA("vtkMRMLScalarVolumeNode"):
+            # DICOM DB 등에서 임포트한 볼륨이 새로 씬에 로드되면 자동으로 감지하여 세팅
+            logging.info(f"New volume node detected in scene: '{node.GetName()}'. Auto-selecting in module...")
+            
+            # 콤보박스의 현재 노드로 자동 교체
+            self.ui.inputVolumeSelector.setCurrentNode(node)
+            
+            # 가시성 자동 활성화
+            self.ui.volumeVisibilityButton.checked = True
+
+    def onOpenPlannerWindowClicked(self) -> None:
+        """Slicer 왼쪽 패널의 버튼을 눌렀을 때 다이얼로그를 화면에 노출합니다."""
+        if self.plannerDialog:
+            self.plannerDialog.show()
+            self.plannerDialog.raise_()
+            self.plannerDialog.activateWindow()
+
     #
     # 실시간 3D 영상 회전 핸들러
     #
@@ -308,6 +512,33 @@ class FemurFracturePlannerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
         self.ui.rotationAngleSlider.value = newAngle
         logging.info(f"Rapid rotation +90° applied. New angle: {newAngle:.1f}°")
 
+    #
+    # 5. 골절 파편 분리 핸들러
+    #
+
+    def onSeparateFragmentsClicked(self) -> None:
+        """5단계: 버튼 클릭 시 세그먼트 데이터에서 독립된 뼈 조각 모델들을 자동으로 분리합니다."""
+        segNode = self.ui.activeSegmentationSelector.currentNode()
+        if not segNode:
+            slicer.util.errorDisplay(_("Please select an Input Segmentation node first."))
+            return
+
+        # 3D 뼈 파편 분리 연산 시작 (마우스 대기 커서 활성화)
+        logging.info(f"Separating disjoint bone fragments in segmentation: '{segNode.GetName()}'")
+        
+        with slicer.util.tryWithErrorDisplay(_("Failed to separate bone fragments."), waitCursor=True):
+            separatedCount = self.logic.separateBoneFragments(segNode)
+            
+            if separatedCount > 0:
+                slicer.util.infoDisplay(_(f"Successfully separated into {separatedCount} independent bone fragments!"))
+                
+                # 가상 수술 조작이 편하도록 기존 CT 볼륨 렌더링(홀로그램) 가시성은 꺼줍니다.
+                inputNode = self.ui.inputVolumeSelector.currentNode()
+                if inputNode and self.ui.volumeRenderingVisibilityButton.checked:
+                    self.ui.volumeRenderingVisibilityButton.checked = False
+            else:
+                slicer.util.errorDisplay(_("No valid bone fragments could be extracted. Make sure the segmentation contains points."))
+
 
 #
 # FemurFracturePlannerLogic (비즈니스 로직 구현부)
@@ -324,7 +555,7 @@ class FemurFracturePlannerLogic(ScriptedLoadableModuleLogic):
         if not displayNode:
             displayNode = volRenLogic.CreateVolumeRenderingDisplayNode()
             slicer.mrmlScene.AddNode(displayNode)
-            displayNode.SetAndObserveVolumeNodeID(volumeNode.GetID())
+            volumeNode.AddAndObserveDisplayNodeID(displayNode.GetID())
         
         volRenLogic.UpdateDisplayNodeFromVolumeNode(displayNode, volumeNode)
         presetNode = volRenLogic.GetPresetByName("CT-Bone")
@@ -339,11 +570,14 @@ class FemurFracturePlannerLogic(ScriptedLoadableModuleLogic):
         slicer.util.forceRenderAllViews()
 
     def hideVolumeRendering(self, volumeNode: vtkMRMLScalarVolumeNode) -> None:
-        """볼륨 렌더링 가시성을 끕니다."""
+        """볼륨 렌더링 노드를 씬에서 완전히 제거하여 3D 뷰에서 깨끗이 지웁니다."""
         volRenLogic = slicer.modules.volumerendering.logic()
         displayNode = volRenLogic.GetFirstVolumeRenderingDisplayNode(volumeNode)
         if displayNode:
-            displayNode.SetVisibility(False)
+            slicer.mrmlScene.RemoveNode(displayNode)
+        
+        # 3D 뷰 및 슬라이스 뷰어 화면 즉시 리렌더링 갱신
+        slicer.util.forceRenderAllViews()
 
     def updateVolumeRendering(self, volumeNode: vtkMRMLScalarVolumeNode, threshold: float) -> None:
         self.showVolumeRendering(volumeNode, threshold)
@@ -395,6 +629,80 @@ class FemurFracturePlannerLogic(ScriptedLoadableModuleLogic):
         
         transformNode.SetMatrixTransformToParent(matrix)
         logging.debug(f"Rotated volume '{volumeNode.GetName()}' around {axis}-Axis by {angle:.1f}°")
+
+    def separateBoneFragments(self, segmentationNode: vtkMRMLSegmentationNode) -> int:
+        """
+        주어진 세그먼트 노드로부터 불연속적인 메쉬(Mesh)들을 감지하여,
+        각각 독립된 vtkMRMLModelNode(3D 모델)로 분리하고 다채로운 무지개 계열 색상을 입혀 저장합니다.
+        꼭짓점 개수가 200개 이하인 미세 노이즈 조각들은 필터링하여 생성하지 않습니다.
+        """
+        if not segmentationNode:
+            return 0
+
+        # 1. 임시 Labelmap 노드 생성 및 가시 세그먼트 데이터 내보내기
+        labelmapNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLabelMapVolumeNode")
+        labelmapNode.SetName("Temp_Extraction_Labelmap")
+        
+        slicer.modules.segmentations.logic().ExportVisibleSegmentsToLabelmapNode(
+            segmentationNode, labelmapNode, segmentationNode.GetReferenceImageGeometryParameterFromVolumeNode()
+        )
+
+        # 2. vtkMarchingCubes를 사용하여 Labelmap의 뼈 영역(값=1)을 3D 삼각 메쉬(PolyData)로 변환
+        mc = vtk.vtkMarchingCubes()
+        mc.SetInputData(labelmapNode.GetImageData())
+        mc.SetValue(0, 1)
+        mc.Update()
+
+        polyData = mc.GetOutput()
+        if not polyData or polyData.GetNumberOfPoints() == 0:
+            slicer.mrmlScene.RemoveNode(labelmapNode)
+            raise RuntimeError("The selected segmentation node has no valid 3D geometry.")
+
+        # 3. VTK Connectivity Filter를 연동하여 불연속적으로 끊어진 Region(조각)들을 일괄 분석
+        connectivityFilter = vtk.vtkPolyDataConnectivityFilter()
+        connectivityFilter.SetInputData(polyData)
+        connectivityFilter.SetExtractionModeToAllRegions()
+        connectivityFilter.Update()
+
+        numRegions = connectivityFilter.GetNumberOfExtractedRegions()
+        logging.info(f"Total disconnected regions detected: {numRegions}")
+
+        separatedCount = 0
+        
+        # 4. 각 Region별로 루프를 돌며 개별 3D 모델 메쉬 노드로 씬에 추가
+        for i in range(numRegions):
+            singleRegionFilter = vtk.vtkPolyDataConnectivityFilter()
+            singleRegionFilter.SetInputData(polyData)
+            singleRegionFilter.SetExtractionModeToSpecifiedRegions()
+            singleRegionFilter.AddSpecifiedRegion(i)
+            singleRegionFilter.Update()
+
+            regionPolyData = singleRegionFilter.GetOutput()
+            
+            # 꼭짓점 개수가 200개 초과인 의미 있는 큰 뼈 조각들만 필터링하여 노이즈 배제
+            if regionPolyData.GetNumberOfPoints() > 200:
+                fragModel = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode")
+                fragModel.SetName(f"Femur_Fragment_{separatedCount + 1}")
+                fragModel.SetAndObservePolyData(regionPolyData)
+                fragModel.CreateDefaultDisplayNodes()
+
+                # 3D 뷰에서 파편 구분이 쉽도록 다채로운 색상 순차 지정
+                displayNode = fragModel.GetDisplayNode()
+                if displayNode:
+                    # 겹치지 않는 무지개 톤 스펙트럼 색상 배분
+                    r = 0.3 + (separatedCount * 0.17) % 0.6
+                    g = 0.4 + (separatedCount * 0.11) % 0.5
+                    b = 0.8 - (separatedCount * 0.23) % 0.5
+                    displayNode.SetColor(r, g, b)
+                    displayNode.SetSliceIntersectionVisibility(True)
+                    displayNode.SetSliceIntersectionThickness(3)
+
+                separatedCount += 1
+
+        # 5. 사용을 마친 임시 라벨맵 노드 완전 소멸
+        slicer.mrmlScene.RemoveNode(labelmapNode)
+        
+        return separatedCount
 
 
 #

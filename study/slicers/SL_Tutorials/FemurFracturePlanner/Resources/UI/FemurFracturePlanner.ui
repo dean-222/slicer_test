@@ -1,4 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+File Name: FemurFracturePlanner.ui
+Version: v0.200
+Date: 2026-06-23
+Description: Femur Fracture Planner 모듈의 Qt UI 레이아웃 파일
+
+Version History:
+
+- v0.200 (2026-06-23)
+  - DICOM 데이터베이스 로더 버튼(loadDicomButton) 추가 배치
+- v0.100 (2026-06-23)
+  - 다이렉트 파일 로더 버튼(loadVolumeButton) 배치 및 3D 뷰 회전/세그먼트 에디터 레이아웃 구성
+- v0.000 (2026-06-23)
+  - 최초 작성
+-->
 <ui version="4.0">
  <class>FemurFracturePlanner</class>
  <widget class="qMRMLWidget" name="FemurFracturePlanner">
@@ -7,12 +22,12 @@
     <x>0</x>
     <y>0</y>
     <width>325</width>
-    <height>650</height>
+    <height>720</height>
    </rect>
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    
-   <!-- 1. Input CT Volume Selection with Eye Toggle -->
+   <!-- 1. Input CT Volume Selection with Eye Toggle & File Loader -->
    <item>
     <widget class="ctkCollapsibleButton" name="inputCollapsibleButton">
      <property name="text">
@@ -72,6 +87,26 @@
          </widget>
         </item>
        </layout>
+      </item>
+      <item row="1" column="0" colspan="2">
+       <widget class="QPushButton" name="loadVolumeButton">
+        <property name="text">
+         <string>📁 Load CT Volume (File)</string>
+        </property>
+        <property name="toolTip">
+         <string>Load a CT volume file (.nrrd, .nii, .nii.gz, etc.) from local storage.</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="0" colspan="2">
+       <widget class="QPushButton" name="loadDicomButton">
+        <property name="text">
+         <string>📁 Load CT Volume (DICOM DB)</string>
+        </property>
+        <property name="toolTip">
+         <string>Open Slicer's DICOM database browser in a popup dialog to load volumes.</string>
+        </property>
+       </widget>
       </item>
      </layout>
     </widget>
@@ -281,6 +316,58 @@
     </widget>
    </item>
 
+   <!-- 5. Fracture Fragment Separation -->
+   <item>
+    <widget class="ctkCollapsibleButton" name="fragmentSeparationCollapsibleButton">
+     <property name="text">
+      <string>5. Fracture Fragment Separation</string>
+     </property>
+     <layout class="QFormLayout" name="separationFormLayout">
+      <item row="0" column="0">
+       <widget class="QLabel" name="targetSegmentationLabel">
+        <property name="text">
+         <string>Input Segmentation:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="qMRMLNodeComboBox" name="activeSegmentationSelector">
+        <property name="toolTip">
+         <string>Select the segmentation node to separate disjoint components.</string>
+        </property>
+        <property name="nodeTypes">
+         <stringlist notr="true">
+          <string>vtkMRMLSegmentationNode</string>
+         </stringlist>
+        </property>
+        <property name="showChildNodeTypes">
+         <bool>false</bool>
+        </property>
+        <property name="addEnabled">
+         <bool>false</bool>
+        </property>
+        <property name="removeEnabled">
+         <bool>false</bool>
+        </property>
+        <property name="noneEnabled">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="0" colspan="2">
+       <widget class="QPushButton" name="separateFragmentsButton">
+        <property name="text">
+         <string>Separate Bone Fragments</string>
+        </property>
+        <property name="styleSheet">
+         <string>font-weight: bold; background-color: #fff3e0;</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+
    <item>
     <spacer name="verticalSpacer">
      <property name="orientation">
@@ -335,6 +422,22 @@
     <hint type="destinationlabel">
      <x>222</x>
      <y>38</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>FemurFracturePlanner</sender>
+   <signal>mrmlSceneChanged(vtkMRMLScene*)</signal>
+   <receiver>activeSegmentationSelector</receiver>
+   <slot>setMRMLScene(vtkMRMLScene*)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>162</x>
+     <y>299</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>222</x>
+     <y>500</y>
     </hint>
    </hints>
   </connection>
