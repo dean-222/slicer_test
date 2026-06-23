@@ -12,7 +12,7 @@ from slicer.parameterNodeWrapper import (
 
 # Slicer 노드 타입 참조
 from slicer import vtkMRMLScalarVolumeNode
-from slicer import vtkMRMLVolumeRenderingDisplayNode
+from slicer import vtkMRMLLinearTransformNode
 
 #
 # FemurFracturePlanner (메인 모듈 메타데이터 클래스)
@@ -25,10 +25,10 @@ class FemurFracturePlanner(ScriptedLoadableModule):
         self.parent.dependencies = []
         self.parent.contributors = ["Antigravity (DeepMind)"]
         self.parent.helpText = _("""
-This module provides real-time CT volume rendering and an embedded Segment Editor for femur fracture visualization and surgical planning.
+This module provides real-time CT volume rendering, interactive 3D rotation, and an embedded Segment Editor for femur fracture visualization and surgical planning.
 """)
         self.parent.acknowledgementText = _("""
-Built for interactive femur bone segmentation using Slicer's embedded widget technology.
+Built for interactive femur bone segmentation and real-time visualization using Slicer's embedded widget technology.
 """)
 
 
@@ -58,7 +58,7 @@ class FemurFracturePlannerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
     def setup(self) -> None:
         ScriptedLoadableModuleWidget.setup(self)
 
-        # UI 파일 로드 (Resources/ 중복 에러가 수정된 'UI/FemurFracturePlanner.ui' 사용)
+        # UI 파일 로드
         uiWidget = slicer.util.loadUI(self.resourcePath("UI/FemurFracturePlanner.ui"))
         self.layout.addWidget(uiWidget)
         self.ui = slicer.util.childWidgetVariables(uiWidget)
@@ -73,14 +73,25 @@ class FemurFracturePlannerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
         self.addObserver(slicer.mrmlScene, slicer.mrmlScene.StartCloseEvent, self.onSceneStartClose)
         self.addObserver(slicer.mrmlScene, slicer.mrmlScene.EndCloseEvent, self.onSceneEndClose)
 
-        # 1. 입력 볼륨 선택 변경
+        # 1. 입력 볼륨 선택 변경 및 가시성 제어 연결
         self.ui.inputVolumeSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onInputVolumeChanged)
+        self.ui.volumeVisibilityButton.connect("toggled(bool)", self.onVolumeVisibilityToggled)
 
         # 2. 실시간 3D 볼륨 렌더링 이벤트 연결
         self.ui.volumeRenderingCheckBox.connect("toggled(bool)", self.onVolumeRenderingToggled)
         self.ui.thresholdSlider.connect("valueChanged(double)", self.onThresholdSliderChanged)
 
-        # 3. 내장 세그먼트 에디터 위젯 동적 생성 및 배치
+        # 3. 실시간 3D 영상 회전 제어 이벤트 연결
+        self.ui.rotationAngleSlider.connect("valueChanged(double)", self.onRotationAngleChanged)
+        self.ui.resetRotationButton.connect("clicked(bool)", self.onResetRotationClicked)
+        self.ui.rotate90Button.connect("clicked(bool)", self.onRotate90Clicked)
+        
+        # 회전 축 변경 시에도 즉각 회전을 반영하기 위해 라디오 버튼 변경 이벤트 감지
+        self.ui.rotationXRadio.connect("toggled(bool)", self.onRotationAxisChanged)
+        self.ui.rotationYRadio.connect("toggled(bool)", self.onRotationAxisChanged)
+        self.ui.rotationZRadio.connect("toggled(bool)", self.onRotationAxisChanged)
+
+        # 4. 내장 세그먼트 에디터 위젯 동적 생성 및 배치
         self.createEmbeddedSegmentEditor()
 
         # 파라미터 노드 초기화
@@ -136,7 +147,6 @@ class FemurFracturePlannerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
             
         if self.segmentEditorWidget:
             self.segmentEditorWidget.setMRMLSegmentEditorNode(self.segmentEditorNode)
-            # 현재 선택된 볼륨 노드를 에디터의 소스(입력) 노드로 동기화 설정
             inputNode = self.ui.inputVolumeSelector.currentNode()
             if inputNode:
                 self.segmentEditorWidget.setSourceVolumeNode(inputNode)
@@ -180,7 +190,7 @@ class FemurFracturePlannerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
             self._parameterNodeGuiTag = self._parameterNode.connectGui(self.ui)
 
     #
-    # 영상 처리 & 3D 볼륨 렌더링 이벤트 핸들러
+    # 영상 처리 & 3D 볼륨 렌더링 및 가시성 제어 핸들러
     #
 
     def onInputVolumeChanged(self, node) -> None:
@@ -188,9 +198,40 @@ class FemurFracturePlannerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
         if self.segmentEditorWidget and node:
             self.segmentEditorWidget.setSourceVolumeNode(node)
             
+        # 가시성 버튼이 켜진 상태(Show)라면 새 볼륨을 뷰어 화면에 자동으로 매핑
+        if self.ui.volumeVisibilityButton.checked:
+            slicer.util.setSliceViewerLayers(background=node)
+        else:
+            slicer.util.setSliceViewerLayers(background=None)
+            
         # 볼륨 렌더링이 켜져 있는 상태라면 렌더링 대상도 교체
         if self.ui.volumeRenderingCheckBox.checked and node:
             self.logic.updateVolumeRendering(node, self.ui.thresholdSlider.value)
+
+        # 새로운 볼륨이 들어오면 각도 슬라이더 리셋
+        self.ui.rotationAngleSlider.value = 0.0
+
+    def onVolumeVisibilityToggled(self, checked: bool) -> None:
+        """상단 눈(Eye) 모양 가시성 토글 버튼 처리"""
+        inputNode = self.ui.inputVolumeSelector.currentNode()
+        if not inputNode:
+            if checked:
+                self.ui.volumeVisibilityButton.checked = False
+                slicer.util.errorDisplay(_("Please load/select an Input CT Volume first."))
+            return
+
+        if checked:
+            # 3D Slicer 3대 슬라이스 뷰어(Red, Green, Yellow)의 배경 레이어에 볼륨 강제 매핑
+            slicer.util.setSliceViewerLayers(background=inputNode)
+            self.ui.volumeVisibilityButton.text = _("Hide")
+            self.ui.volumeVisibilityButton.toolTip = _("Hide volume in viewers")
+            logging.info(f"Showing volume '{inputNode.GetName()}' in slice viewers.")
+        else:
+            # 배경 레이어 비우기
+            slicer.util.setSliceViewerLayers(background=None)
+            self.ui.volumeVisibilityButton.text = _("Show")
+            self.ui.volumeVisibilityButton.toolTip = _("Show volume in viewers")
+            logging.info("Hiding volume in slice viewers.")
 
     def onVolumeRenderingToggled(self, checked: bool) -> None:
         """3D 볼륨 렌더링 체크박스 토글 시"""
@@ -214,8 +255,52 @@ class FemurFracturePlannerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
         if not inputNode or not self.ui.volumeRenderingCheckBox.checked:
             return
         
-        # 비즈니스 로직을 호출하여 볼륨의 투명도 맵핑 곡선 업데이트
         self.logic.adjustVolumeRenderingThreshold(inputNode, value)
+
+    #
+    # 실시간 3D 영상 회전 핸들러
+    #
+
+    def getSelectedRotationAxis(self) -> str:
+        """라디오 버튼 선택 상태를 확인하여 현재 선택된 회전 축을 반환합니다."""
+        if self.ui.rotationYRadio.checked:
+            return "Y"
+        elif self.ui.rotationZRadio.checked:
+            return "Z"
+        return "X"
+
+    def onRotationAxisChanged(self, toggled: bool) -> None:
+        """선택 축이 변경되었을 때, 현재 슬라이더 각도에 맞춰 즉시 3D 회전을 업데이트합니다."""
+        if toggled:
+            self.onRotationAngleChanged(self.ui.rotationAngleSlider.value)
+
+    def onRotationAngleChanged(self, value: float) -> None:
+        """슬라이더의 각도가 변경되면, 변환 행렬을 갱신하여 3D 뷰 및 슬라이스 뷰 상에서 볼륨을 회전시킵니다."""
+        inputNode = self.ui.inputVolumeSelector.currentNode()
+        if not inputNode:
+            return
+
+        axis = self.getSelectedRotationAxis()
+        
+        # 비즈니스 로직을 통해 변환 노드 생성/조정 및 회전 적용
+        self.logic.rotateVolume(inputNode, axis, value)
+        
+        # 3D 뷰 및 슬라이스 뷰어 화면 즉시 갱신 요구
+        slicer.util.forceRenderAllViews()
+
+    def onResetRotationClicked(self) -> None:
+        """회전 상태를 0도로 리셋합니다."""
+        self.ui.rotationAngleSlider.value = 0.0
+        logging.info("Interactive 3D rotation resetted to 0 degrees.")
+
+    def onRotate90Clicked(self) -> None:
+        """현재 회전 각도에서 +90도만큼 각도를 회전시킵니다."""
+        currentAngle = self.ui.rotationAngleSlider.value
+        newAngle = currentAngle + 90.0
+        if newAngle > 180.0:
+            newAngle = newAngle - 360.0
+        self.ui.rotationAngleSlider.value = newAngle
+        logging.info(f"Rapid rotation +90° applied. New angle: {newAngle:.1f}°")
 
 
 #
@@ -226,30 +311,21 @@ class FemurFracturePlannerLogic(ScriptedLoadableModuleLogic):
         return FemurFracturePlannerParameterNode(super().getParameterNode())
 
     def showVolumeRendering(self, volumeNode: vtkMRMLScalarVolumeNode, threshold: float) -> None:
-        """
-        주어진 볼륨에 대해 3D Slicer 내장 GPU 볼륨 렌더링을 켜고,
-        'CT-Bone' 뼈 가시화 프리셋을 적용한 뒤, 슬라이더 임계값에 맞춰 투명도를 세팅합니다.
-        """
+        """볼륨에 대해 3D Slicer 내장 GPU 볼륨 렌더링을 켜고 'CT-Bone' 뼈 프리셋을 적용합니다."""
         volRenLogic = slicer.modules.volumerendering.logic()
         
-        # 1. 기존에 생성된 볼륨 렌더링 디스플레이 노드가 있는지 탐색
         displayNode = volRenLogic.GetFirstVolumeRenderingDisplayNode(volumeNode)
         if not displayNode:
-            # 2. 없으면 새로 생성하여 씬에 등록
             displayNode = volRenLogic.CreateVolumeRenderingDisplayNode()
             slicer.mrmlScene.AddNode(displayNode)
             displayNode.SetAndObserveVolumeNodeID(volumeNode.GetID())
         
-        # 3. Slicer의 표준 뼈(CT-Bone) 시각화 프리셋 적용
         volRenLogic.UpdateDisplayNodeFromVolumeNode(displayNode)
         presetNode = volRenLogic.GetPresetByName("CT-Bone")
         if presetNode:
             displayNode.GetVolumePropertyNode().Copy(presetNode)
             
-        # 4. 슬라이더 값에 맞게 투명도 임계값 매핑 조정
         self.adjustVolumeRenderingThreshold(volumeNode, threshold)
-        
-        # 5. 가시성 켜기
         displayNode.SetVisibility(True)
 
     def hideVolumeRendering(self, volumeNode: vtkMRMLScalarVolumeNode) -> None:
@@ -260,14 +336,10 @@ class FemurFracturePlannerLogic(ScriptedLoadableModuleLogic):
             displayNode.SetVisibility(False)
 
     def updateVolumeRendering(self, volumeNode: vtkMRMLScalarVolumeNode, threshold: float) -> None:
-        """다른 볼륨으로 렌더링 대상을 바꿀 때 가시성을 전환합니다."""
         self.showVolumeRendering(volumeNode, threshold)
 
     def adjustVolumeRenderingThreshold(self, volumeNode: vtkMRMLScalarVolumeNode, threshold: float) -> None:
-        """
-        볼륨 렌더링 노드의 투명도 전달 함수(Scalar Opacity Transfer Function)의 뼈 영역 기준점을 
-        슬라이더에서 전달된 HU 임계값(Threshold)에 맞춰 실시간 이동시킵니다.
-        """
+        """볼륨 렌더링의 뼈 가시화 투명도 곡선을 실시간 변경시킵니다."""
         volRenLogic = slicer.modules.volumerendering.logic()
         displayNode = volRenLogic.GetFirstVolumeRenderingDisplayNode(volumeNode)
         if not displayNode:
@@ -277,19 +349,50 @@ class FemurFracturePlannerLogic(ScriptedLoadableModuleLogic):
         if not volumePropertyNode:
             return
 
-        # 3D Slicer 볼륨 속성의 스칼라 투명도 전달 함수(Piecewise Function) 획득
         opacityFunction = volumePropertyNode.GetVolumeProperty().GetScalarOpacity()
         
-        # CT-Bone 프리셋의 기본적인 투명도 전달 함수 제어 포인트 리빌딩
-        # 뼈(Bone)는 대략 입력 임계값(threshold) 부근부터 급격히 불투명해지기 시작함
         opacityFunction.RemoveAllPoints()
-        opacityFunction.AddPoint(threshold - 100, 0.0) # 임계값보다 낮은 소프트 티슈는 투명처리 (0.0)
-        opacityFunction.AddPoint(threshold, 0.15)      # 임계값 도달 지점부터 불투명하기 시작
-        opacityFunction.AddPoint(threshold + 200, 0.7)  # 단단한 피질골 영역은 고도 불투명 (0.7)
-        opacityFunction.AddPoint(1500, 0.85)            # 매우 치밀한 뼈는 강하게 표시
+        opacityFunction.AddPoint(threshold - 100, 0.0)
+        opacityFunction.AddPoint(threshold, 0.15)
+        opacityFunction.AddPoint(threshold + 200, 0.7)
+        opacityFunction.AddPoint(1500, 0.85)
         
-        # Slicer 3D 뷰 강제 렌더링 갱신
         displayNode.Modified()
+
+    def rotateVolume(self, volumeNode: vtkMRMLScalarVolumeNode, axis: str, angle: float) -> None:
+        """
+        선택된 볼륨 노드에 선형 변환 노드(vtkMRMLLinearTransformNode)를 연결하고,
+        지정된 축(X, Y, Z)과 각도로 변환 행렬을 빌드하여 3D 및 2D 뷰 상에서 볼륨을 회전시킵니다.
+        """
+        if not volumeNode:
+            return
+
+        # 1. 볼륨 노드의 현재 Parent Transform Node 탐색
+        transformNode = volumeNode.GetParentTransformNode()
+        
+        # 2. 선형 변환 노드가 연결되어 있지 않거나 다른 노드인 경우 새로 생성
+        if not transformNode or not transformNode.IsA("vtkMRMLLinearTransformNode"):
+            transformNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLinearTransformNode")
+            transformNode.SetName(f"{volumeNode.GetName()}_RotationTransform")
+            # 볼륨 노드가 변환 노드를 따르도록 상속 지정
+            volumeNode.SetAndObserveTransformNodeID(transformNode.GetID())
+            logging.info(f"Created new linear transform node for '{volumeNode.GetName()}'.")
+
+        # 3. VTK Transform을 생성하여 회전 행렬 계산
+        transform = vtk.vtkTransform()
+        if axis == "X":
+            transform.RotateX(angle)
+        elif axis == "Y":
+            transform.RotateY(angle)
+        else:
+            transform.RotateZ(angle)
+
+        matrix = vtk.vtkMatrix4x4()
+        transform.GetMatrix(matrix)
+        
+        # 4. 변환 행렬 적용 (부모 변환 행렬로 설정하여 실시간 공간 배치 변경)
+        transformNode.SetMatrixTransformToParent(matrix)
+        logging.debug(f"Rotated volume '{volumeNode.GetName()}' around {axis}-Axis by {angle:.1f}°")
 
 
 #

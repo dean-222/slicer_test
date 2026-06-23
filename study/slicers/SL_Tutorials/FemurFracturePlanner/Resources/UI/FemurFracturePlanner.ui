@@ -12,7 +12,7 @@
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    
-   <!-- 1. Input CT Volume Selection -->
+   <!-- 1. Input CT Volume Selection with Eye Toggle -->
    <item>
     <widget class="ctkCollapsibleButton" name="inputCollapsibleButton">
      <property name="text">
@@ -27,28 +27,51 @@
        </widget>
       </item>
       <item row="0" column="1">
-       <widget class="qMRMLNodeComboBox" name="inputVolumeSelector">
-        <property name="toolTip">
-         <string>Select the input CT volume node.</string>
-        </property>
-        <property name="nodeTypes">
-         <stringlist notr="true">
-          <string>vtkMRMLScalarVolumeNode</string>
-         </stringlist>
-        </property>
-        <property name="showChildNodeTypes">
-         <bool>false</bool>
-        </property>
-        <property name="addEnabled">
-         <bool>false</bool>
-        </property>
-        <property name="removeEnabled">
-         <bool>false</bool>
-        </property>
-        <property name="SlicerParameterName" stdset="0">
-         <string>inputVolume</string>
-        </property>
-       </widget>
+       <layout class="QHBoxLayout" name="volumeSelectHLayout">
+        <item>
+         <widget class="qMRMLNodeComboBox" name="inputVolumeSelector">
+          <property name="toolTip">
+           <string>Select the input CT volume node.</string>
+          </property>
+          <property name="nodeTypes">
+           <stringlist notr="true">
+            <string>vtkMRMLScalarVolumeNode</string>
+           </stringlist>
+          </property>
+          <property name="showChildNodeTypes">
+           <bool>false</bool>
+          </property>
+          <property name="addEnabled">
+           <bool>false</bool>
+          </property>
+          <property name="removeEnabled">
+           <bool>false</bool>
+          </property>
+          <property name="SlicerParameterName" stdset="0">
+           <string>inputVolume</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="volumeVisibilityButton">
+          <property name="text">
+           <string>Show</string>
+          </property>
+          <property name="checkable">
+           <bool>true</bool>
+          </property>
+          <property name="toolTip">
+           <string>Toggle volume visibility in slice viewers.</string>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>60</width>
+            <height>16777215</height>
+           </size>
+          </property>
+         </widget>
+        </item>
+       </layout>
       </item>
      </layout>
     </widget>
@@ -116,11 +139,105 @@
     </widget>
    </item>
 
-   <!-- 3. Embedded Segment Editor -->
+   <!-- 3. Image Rotation Control -->
+   <item>
+    <widget class="ctkCollapsibleButton" name="rotationCollapsibleButton">
+     <property name="text">
+      <string>3. Live 3D Rotation Control</string>
+     </property>
+     <layout class="QVBoxLayout" name="rotationVLayout">
+      <!-- Axis Selection -->
+      <item>
+       <widget class="QGroupBox" name="axisGroupBox">
+        <property name="title">
+         <string>Rotation Axis</string>
+        </property>
+        <layout class="QHBoxLayout" name="axisHLayout">
+         <item>
+          <widget class="QRadioButton" name="rotationXRadio">
+           <property name="text">
+            <string>X-Axis</string>
+           </property>
+           <property name="checked">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QRadioButton" name="rotationYRadio">
+           <property name="text">
+            <string>Y-Axis</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QRadioButton" name="rotationZRadio">
+           <property name="text">
+            <string>Z-Axis</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      
+      <!-- Fine Rotation Slider -->
+      <item>
+       <layout class="QFormLayout" name="fineRotationLayout">
+        <item row="0" column="0">
+         <widget class="QLabel" name="angleLabel">
+          <property name="text">
+           <string>Angle (°):</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="ctkSliderWidget" name="rotationAngleSlider">
+          <property name="toolTip">
+           <string>Rotate the volume interactively.</string>
+          </property>
+          <property name="minimum">
+           <double>-180</double>
+          </property>
+          <property name="maximum">
+           <double>180</double>
+          </property>
+          <property name="value">
+           <double>0</double>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      
+      <!-- Reset & Rapid Buttons -->
+      <item>
+       <layout class="QHBoxLayout" name="rotationButtonsLayout">
+        <item>
+         <widget class="QPushButton" name="resetRotationButton">
+          <property name="text">
+           <string>Reset (0°)</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="rotate90Button">
+          <property name="text">
+           <string>Rotate +90°</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
+   </item>
+
+   <!-- 4. Embedded Segment Editor -->
    <item>
     <widget class="ctkCollapsibleButton" name="segmentEditorCollapsibleButton">
      <property name="text">
-      <string>3. Embedded Segment Editor</string>
+      <string>4. Embedded Segment Editor</string>
      </property>
      <layout class="QVBoxLayout" name="editorVLayout">
       <!-- Anchor widget where slicer.qMRMLSegmentEditorWidget will be dynamically placed -->
