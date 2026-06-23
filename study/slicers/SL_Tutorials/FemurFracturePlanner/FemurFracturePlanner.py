@@ -11,106 +11,94 @@ Version History:
   - Fracture Surface Snap 알고리즘을 vtkIterativeClosestPointTransform에서 1:1 점 매칭 강체 랜드마크 정합(vtkLandmarkTransform)으로 전면 교체하여 수동 배치 의도를 유지한 채 단면이 정확하게 밀착 스냅되도록 수정 (Z 증가)
   - 4자리 버전 번호 체계를 전역 룰에 부합하는 3자리 v0.XYZ 형식으로 일괄 교정 및 역산 정리 (Y 증가)
 - v0.300 (2026-06-23)
-  - 뼈 파편 조각 간의 마주 보는 절단면(Fracture surface)을 KD-Tree 인접 정점 필터링으로 자동 검출하고 조립하는 Run Fracture Surface Snap 기능 및 UI 버튼 신설
-- v0.210 (2026-06-23)
-  - Slicer 모듈 리로드 시 enter() 타이밍 꼬임으로 세그먼트 에디터가 비활성화되는 버그를 해결하기 위해 setup() 시점에서도 2중으로 강제 노드 재바인딩 로직 보완
+  - 뼈 파편 조각 간의 마주 보는 절단면(Fracture surface)을 KD-Tree 인접 정점 필터링으로 자동 검출하고 조립하는 Run Fracture Surface Snap 기능 및 UI 버튼 신설 (X 증가, Y/Z 초기화)
+- v0.201 (2026-06-23)
+  - Slicer 모듈 리로드 시 enter() 타이밍 꼬임으로 세그먼트 에디터가 비활성화되는 버그를 해결하기 위해 setup() 시점에서도 2중으로 강제 노드 재바인딩 로직 보완 (Z 증가)
 - v0.200 (2026-06-23)
-  - 7. Fragment Manager 내에 각 프래그먼트의 실시간 위치 및 회전 좌표를 보여주는 transformDisplayGroupBox 신설 및 VTK ModifiedEvent 옵저버 연동을 통한 실시간 갱신 기능 구현
-- v0.128 (2026-06-23)
-  - Slicer 모듈 리로드 시 세그먼트 에디터 위젯이 비활성화(disabled)되는 문제를 방지하기 위해 enter 시점에 노드 강제 재바인딩 추가 및 기존 에디터 노드 재사용 로직 보완
-  - vtkMRMLSegmentEditorNode의 누락된 API 호출 오류 수정 (GetSelectedEffectName -> GetActiveEffectName)
-- v0.127 (2026-06-23)
-  - 4번 세그먼트 에디터 Threshold 최초 클릭 시 UI 짤림을 방지하기 위해 isThresholdActive 상태 플래그 도입 및 setMinimumHeight(960) 연계 강제 창 크기 확장 구현
-  - 6번 가상 뼈 정복 ICP 수행 시 메쉬 훼손 없이 부모 변환 노드의 로컬 행렬을 누적 연산하도록 수학적 행렬 연산 리팩토링 및 3D 회전 역행렬 전파 뒤틀림 버그 수정
-- v0.1.26.3 (2026-06-23)
+  - 7. Fragment Manager 내에 각 프래그먼트의 실시간 위치 및 회전 좌표를 보여주는 transformDisplayGroupBox 신설 및 VTK ModifiedEvent 옵저버 연동을 통한 실시간 갱신 기능 구현 (X 증가, Y/Z 초기화)
+- v0.191 (2026-06-23)
+  - Slicer 모듈 리로드 시 세그먼트 에디터 위젯이 비활성화(disabled)되는 문제를 방지하기 위해 enter 시점에 노드 강제 재바인딩 추가 및 기존 에디터 노드 재사용 로직 보완 (Z 증가)
+  - vtkMRMLSegmentEditorNode의 누락된 API 호출 오류 수정 (GetSelectedEffectName -> GetActiveEffectName) (Z 증가)
+- v0.190 (2026-06-23)
+  - 4번 세그먼트 에디터 Threshold 최초 클릭 시 UI 짤림을 방지하기 위해 isThresholdActive 상태 플래그 도입 및 setMinimumHeight(960) 연계 강제 창 크기 확장 구현 (Y 증가, Z 초기화)
+  - 6번 가상 뼈 정복 ICP 수행 시 메쉬 훼손 없이 부모 변환 노드의 로컬 행렬을 누적 연산하도록 수학적 행렬 연산 리팩토링 및 3D 회전 역행렬 전파 뒤틀림 버그 수정 (Y 증가)
+- v0.181 (2026-06-23)
   - C++ 노드 유실 및 최초 1회 생성 렉 문제를 우회하기 위해 200ms 주기적 폴링 감시 타이머(resizeMonitorTimer) 도입하여 짤림 문제 100% 원천 해결 (Z 증가)
-- v0.1262 (2026-06-23)
   - 최초 Threshold 클릭 시 GUI 위젯 동적 생성 지연(렉)으로 인해 창 크기가 1회차에 늘어나지 않던 다단계 타이머 보강 수정 (Z 증가)
-- v0.1261 (2026-06-23)
   - setup 및 enter 시점에 현재 활성화된 에디터 이펙트를 감지하여 최초 1회 창 크기가 짤린 채 켜지던 초기화 오류(버그) 수정 (Z 증가)
-- v0.1260 (2026-06-23)
-  - 좌측 QScrollArea 스크롤바를 제거(롤백)하고, uiWidget의 SizePolicy(Expanding) 강제 설정을 통해 세로 창 자동 확장 기각 오류 해결 (Y 증가)
-- v0.1250 (2026-06-23)
-  - 좌측 1~4단계 컬럼 전체를 감싸는 QScrollArea(leftScrollArea) 도입하여 해상도 부족 및 Threshold 확장 시 UI 짤림 완벽 차단
+- v0.180 (2026-06-23)
+  - 좌측 QScrollArea 스크롤바를 제거(롤백)하고, uiWidget의 SizePolicy(Expanding) 강제 설정을 통해 세로 창 자동 확장 기각 오류 해결 (Y 증가, Z 초기화)
+- v0.170 (2026-06-23)
+  - 좌측 1~4단계 컬럼 전체를 감싸는 QScrollArea(leftScrollArea) 도입하여 해상도 부족 및 Threshold 확장 시 UI 짤림 완벽 차단 (Y 증가, Z 초기화)
   - qMRMLSegmentEditorWidget의 activeEffectChanged 시그널을 연동하여 이펙트 변경 시 정확한 창 조절 처리 (Y 증가)
-- v0.1240 (2026-06-23)
-  - 세그먼트 에디터에서 Threshold 이펙트 선택 시 다이얼로그 창 높이를 960으로 자동 확장하도록 개선 (Y 증가)
-  - dialogLayout의 SizeConstraint를 SetNoConstraint로 완화하여 수동/자동 크기 조절 자유도 확보
-- v0.1230 (2026-06-23)
-  - runIcpRegistration 및 onFragmentInteractionToggled 리팩토링 및 기하학적 정밀도 상향 (Y 증가)
-  - GetMatrixTransformToWorld 적용으로 회전 상태에서도 정확한 3D 월드 공간 정합 지원
-  - vtkIterativeClosestPointTransform of MaximumNumberOfLandmarks(1000) 및 Iterations(300) 상향으로 뼈 단면 정합 정밀도 문제 해결
-  - 기즈모 생성 시 기존 부모 변환 노드를 상속하는 계층 트리 구조 보존 로직 추가
-- v0.1221 (2026-06-23)
+- v0.160 (2026-06-23)
+  - 세그먼트 에디터에서 Threshold 이펙트 선택 시 다이얼로그 창 높이를 960으로 자동 확장하도록 개선 (Y 증가, Z 초기화)
+  - dialogLayout의 SizeConstraint를 SetNoConstraint로 완화하여 수동/자동 크기 조절 자유도 확보 (Y 증가)
+- v0.150 (2026-06-23)
+  - runIcpRegistration 및 onFragmentInteractionToggled 리팩토링 및 기하학적 정밀도 상향 (Y 증가, Z 초기화)
+  - GetMatrixTransformToWorld 적용으로 회전 상태에서도 정확한 3D 월드 공간 정합 지원 (Y 증가)
+  - vtkIterativeClosestPointTransform of MaximumNumberOfLandmarks(1000) 및 Iterations(300) 상향으로 뼈 단면 정합 정밀도 문제 해결 (Y 증가)
+  - 기즈모 생성 시 기존 부모 변환 노드를 상속하는 계층 트리 구조 보존 로직 추가 (Y 증가)
+- v0.141 (2026-06-23)
   - runIcpRegistration 내부의 updateFragmentTable 속성 참조 오류(AttributeError) 수정 (Z 증가)
-  - ICP 완료 후 테이블 갱신 주체를 widget(onRunIcpReductionClicked)으로 이전
-- v0.1220 (2026-06-23)
-  - 7. Fragment Manager 테이블 수동 정렬(Move) 기즈모 활성 컬럼 추가 및 onFragmentInteractionToggled 연동 구현 (기존 기능의 개선이므로 Y 증가)
-  - runIcpRegistration에서 StartByMatchingCentroidsOff() 설정 및 수동 정렬(Gizmo) 트랜스폼 행렬 병합/리셋 로직 이식
-- v0.1210 (2026-06-23)
-  - 5번 뼈 조각 분할 로직에서 감지된 불연속 영역들을 크기 순으로 정렬한 뒤 가장 큰 상위 2개 주요 뼈 조각만 자동 추출하도록 연결성 필터 분석부 변경 (기존 기능의 세부 동작 변경이므로 Y 증가)
-- v0.1200 (2026-06-23)
-  - 6번 가이드 모델 선택기 옆에 가이드 모델 숨김/보임 토글 기능(guideVisibilityButton) 추가 및 핸들러 연동 구현 (신규 기능 추가이므로 X 증가)
-- v0.1100 (2026-06-23)
-  - 방안 C 적용: vtkMRMLSegmentEditorNode에 ModifiedEvent 옵저버를 등록하여 세그먼트 에디터의 이펙트 변경(예: Threshold 활성) 시 다이얼로그 크기가 자동으로 팽창/수축하도록 동적 크기 조절(adjustSize) 기능 구현
-  - QLayout.SetMinAndMaxSize 제약 조건을 plannerDialog 레이아웃에 주입하여 자동 크기 조절 성능 강화
-- v0.1010 (2026-06-23)
-  - 팝업 다이얼로그 기본 세로 높이를 700에서 830으로 확장하여 세그먼트 에디터 Threshold 이펙트의 짤림 현상 개선
-- v0.1000 (2026-06-23)
-  - DICOM DB 로드 시 모듈 전환 없이 독립된 팝업 창으로 띄우도록 BrowserWindowType 강제 설정 적용
-  - 4번 세그멘테이션 에디터에서 신규 세그멘테이션 생성 시 조각(Segment) 추가(Add)가 차단되는 버그 수정 (sourceVolumeNode 유실 대응 재연동 및 상호 동기화 구현)
-- v0.900 (2026-06-23)
-  - 7. Fragment Manager에 생성된 모델 및 가이드를 일괄 삭제하는 일괄 청소 기능(clearModelsButton / onClearModelsClicked) 추가
-  - GetColor() 인자 개수 오류(TypeError: GetColor() takes exactly 0 arguments) 버그 수정
-- v0.800 (2026-06-23)
-  - 5~7번 단계 우측 배치 2컬럼 레이아웃 적용 및 팝업 대화상자 기본 크기 850x700 변경
-  - 6번 가이드 모델 개별 파일 로더 버튼(loadGuideButton) 연동 구현
-- v0.700 (2026-06-23)
-  - 7. Fragment Manager 섹션 및 QTableWidget 조각 목록 연동 추가 (이름 수정, 색상 변경, 가시성 토글, 노드 삭제)
-  - 팝업 대화상자 전체 기본 크기를 420x850으로 확장
-- v0.604 (2026-06-23)
-  - 3D Slicer 5.x의 지원 폐지 경고(SetSliceIntersectionVisibility is deprecated) 해결을 위해 SetVisibility2D(True) API로 교체
-- v0.603 (2026-06-23)
-  - 입력 볼륨 선택 해제(None) 시 세그먼트 에디터 위젯의 SourceVolumeNode도 명시적으로 None 해제하여 에디터 먹통 방지 방어 코드 적용
-- v0.602 (2026-06-23)
-  - vtkPolyDataConnectivityFilter에 InitializeSpecifiedRegions 속성이 없어 발생하는 AttributeError 해결을 위해 매 루프 단일 필터 인스턴스 신규 생성으로 롤백 및 노이즈 필터링 스킵 최적화 유지
-- v0.601 (2026-06-23)
-  - 5번 뼈 분할 기능에서 vtkMRMLSegmentationNode.GetClosedSurfaceRepresentation 직접 호출 시 PythonQt 래핑 문제로 인한 3D Slicer 강제 종료 버그를 slicer.modules.segmentations.logic().GetSegmentClosedSurfaceRepresentation API 호출로 우회 적용 및 vtkPolyDataConnectivityFilter 연산 루프 성능 최적화
-- v0.600 (2026-06-23)
-  - 5번 뼈 분할 기능(Separate Bone Fragments)을 C++ Closed Surface Representation 직접 추출 방식으로 최적화하여 렉 문제 해결 및 UI 활성화
-  - 6번 가상 뼈 정복(Virtual Bone Reduction) 기능 및 UI 연동 추가
-  - 가이드 뼈 모델의 X축 기준 미러링(Mirror Guide) 및 법선벡터(Normal) 플립 로직 구현
-  - VTK ICP(vtkIterativeClosestPointTransform) 기반 자동 정합(ICP Auto-Reduction) 알고리즘 구현
-- v0.500 (2026-06-23)
-  - 5번 뼈 분할 기능(Separate Bone Fragments)의 고부하 연산 멈춤 문제를 피하기 위해 UI상에서 5단계 영역(fragmentSeparationCollapsibleButton) 비활성화(숨김) 처리
-- v0.403 (2026-06-23)
-  - 모듈 리로드(Reload) 및 소멸 시 파괴된 콤보박스 위젯의 ModifiedEvent 예외(TypeError: Trying to call 'setCurrentNode' on a destroyed qMRMLNodeComboBox object) 루프로 인한 응답 없음 해결을 위해 cleanup 함수에 setParameterNode(None) 추가
-- v0.402 (2026-06-23)
-  - 5번 뼈 분할 기능(separateBoneFragments)에서 세그먼트 부재, 가시성 해제, 혹은 빈 라벨맵 데이터일 때 발생하는 C++ NULL 포인터 크래시 및 응답없음 방지 3중 예외 처리 추가
-- v0.401 (2026-06-23)
-  - 5번 뼈 분할 기능(separateBoneFragments)에서 GetReferenceImageGeometryParameterFromVolumeNode 호출 크래시 및 좌표 어긋남 버그 수정 (입력 볼륨의 기하 매칭 연동 방식 도입)
-- v0.400 (2026-06-23)
-  - 3D 회전 제어(Live Rotation) 시 CT 볼륨뿐 아니라 세그멘테이션 메쉬 및 뼈 파편(Model) 노드까지 실시간 동기화 회전 연동
-- v0.305 (2026-06-23)
-  - 모듈 초기화/씬 변경 시 SegmentEditorNode 미지정 상태의 호출 예외 방지를 위한 onInputVolumeChanged 방어 코드 보강
-- v0.304 (2026-06-23)
-  - NodeAddedEvent 문자열 ID 전달에 따른 AttributeError 및 SegmentEditor 'SetSourceVolumeNode' 설정 에러 버그 수정
-- v0.303 (2026-06-23)
-  - qSlicerApplication에 openDICOMBrowser 속성이 누락되어 발생하는 AttributeError 수정 (ActionOpenDICOMBrowser QAction 트리거 방식으로 교체)
-- v0.302 (2026-06-23)
-  - PythonQt QFileDialog.getOpenFileName 반환값 언팩 오류(ValueError) 수정 및 onLoadDicomClicked에 slicer.app.openDICOMBrowser() 도입
-- v0.301 (2026-06-23)
-  - PythonQt 래핑 한계로 인한 closeEvent 동적 대입 AttributeError 오류 수정 (PlannerDialog 상속 클래스 신설)
-- v0.300 (2026-06-23)
-  - 모듈 UI를 3D Slicer 왼쪽 모듈 패널에서 독립된 팝업 대화상자(QDialog) 창으로 분리 및 동기화 구현
-- v0.200 (2026-06-23)
-  - Slicer 내장 DICOM 데이터베이스 팝업 로더 기능 추가 (loadDicomButton 및 slicer.mrmlScene.NodeAddedEvent 옵저버 연동)
+  - ICP 완료 후 테이블 갱신 주체를 widget(onRunIcpReductionClicked)으로 이전 (Z 증가)
+- v0.140 (2026-06-23)
+  - 7. Fragment Manager 테이블 수동 정렬(Move) 기즈모 활성 컬럼 추가 및 onFragmentInteractionToggled 연동 구현 (기존 기능의 개선이므로 Y 증가, Z 초기화)
+  - runIcpRegistration에서 StartByMatchingCentroidsOff() 설정 및 수동 정렬(Gizmo) 트랜스폼 행렬 병합/리셋 로직 이식 (Y 증가)
+- v0.130 (2026-06-23)
+  - 5번 뼈 조각 분할 로직에서 감지된 불연속 영역들을 크기 순으로 정렬한 뒤 가장 큰 상위 2개 주요 뼈 조각만 자동 추출하도록 연결성 필터 분석부 변경 (기존 기능의 세부 동작 변경이므로 Y 증가, Z 초기화)
+- v0.120 (2026-06-23)
+  - 6번 가이드 모델 선택기 옆에 가이드 모델 숨김/보임 토글 기능(guideVisibilityButton) 추가 및 핸들러 연동 구현 (Y 증가, Z 초기화)
+- v0.110 (2026-06-23)
+  - 방안 C 적용: vtkMRMLSegmentEditorNode에 ModifiedEvent 옵저버를 등록하여 세그먼트 에디터의 이펙트 변경(예: Threshold 활성) 시 다이얼로그 크기가 자동으로 팽창/수축하도록 동적 크기 조절(adjustSize) 기능 구현 (Y 증가, Z 초기화)
+  - QLayout.SetMinAndMaxSize 제약 조건을 plannerDialog 레이아웃에 주입하여 자동 크기 조절 성능 강화 (Y 증가)
 - v0.101 (2026-06-23)
-  - onLoadVolumeClicked 내 QFileDialog 반환 언팩 시 local '_' 변수 충돌에 의한 UnboundLocalError 버그 수정
+  - 팝업 다이얼로그 기본 세로 높이를 700에서 830으로 확장하여 세그먼트 에디터 Threshold 이펙트의 짤림 현상 개선 (Z 증가)
 - v0.100 (2026-06-23)
-  - 실시간 CT GPU 볼륨 렌더링, 3D 회전 제어, 내장 세그먼트 에디터 위젯 임베딩 및 다이렉트 파일 로더 기능 추가
+  - DICOM DB 로드 시 모듈 전환 없이 독립된 팝업 창으로 띄우도록 BrowserWindowType 강제 설정 적용 (X 증가, Y/Z 초기화)
+  - 4번 세그멘테이션 에디터에서 신규 세그멘테이션 생성 시 조각(Segment) 추가(Add)가 차단되는 버그 수정 (sourceVolumeNode 유실 대응 재연동 및 상호 동기화 구현) (Z 증가 -> 룰 4번에 의해 X 증가로 통합)
+- v0.091 (2026-06-23)
+  - 7. Fragment Manager에 생성된 모델 및 가이드를 일괄 삭제하는 일괄 청소 기능(clearModelsButton / onClearModelsClicked) 추가 (Y 증가 후 Z 증가이지만, 버그 수정이 포함되어 Y 증가로 처리)
+  - GetColor() 인자 개수 오류(TypeError: GetColor() takes exactly 0 arguments) 버그 수정 (Z 증가)
+- v0.090 (2026-06-23)
+  - 5~7번 단계 우측 배치 2컬럼 레이아웃 적용 및 팝업 대화상자 기본 크기 850x700 변경 (Y 증가, Z 초기화)
+  - 6번 가이드 모델 개별 파일 로더 버튼(loadGuideButton) 연동 구현 (Y 증가)
+- v0.080 (2026-06-23)
+  - 7. Fragment Manager 섹션 및 QTableWidget 조각 목록 연동 추가 (이름 수정, 색상 변경, 가시성 토글, 노드 삭제) (Y 증가, Z 초기화)
+  - 팝업 대화상자 전체 기본 크기를 420x850으로 확장 (Y 증가)
+- v0.071 (2026-06-23)
+  - 3D Slicer 5.x의 지원 폐지 경고(SetSliceIntersectionVisibility is deprecated) 해결을 위해 SetVisibility2D(True) API로 교체 (Z 증가)
+  - 입력 볼륨 선택 해제(None) 시 세그먼트 에디터 위젯의 SourceVolumeNode도 명시적으로 None 해제하여 에디터 먹통 방지 방어 코드 적용 (Z 증가)
+  - vtkPolyDataConnectivityFilter에 InitializeSpecifiedRegions 속성이 없어 발생하는 AttributeError 해결을 위해 매 루프 단일 필터 인스턴스 신규 생성으로 롤백 및 노이즈 필터링 스킵 최적화 유지 (Z 증가)
+  - 5번 뼈 분할 기능에서 vtkMRMLSegmentationNode.GetClosedSurfaceRepresentation 직접 호출 시 PythonQt 래핑 문제로 인한 3D Slicer 강제 종료 버그를 slicer.modules.segmentations.logic().GetSegmentClosedSurfaceRepresentation API 호출로 우회 적용 및 vtkPolyDataConnectivityFilter 연산 루프 성능 최적화 (Z 증가)
+- v0.070 (2026-06-23)
+  - 5번 뼈 분할 기능(Separate Bone Fragments)을 C++ Closed Surface Representation 직접 추출 방식으로 최적화하여 렉 문제 해결 및 UI 활성화 (Y 증가, Z 초기화)
+  - 6번 가상 뼈 정복(Virtual Bone Reduction) 기능 및 UI 연동 추가 (Y 증가)
+  - 가이드 뼈 모델의 X축 기준 미러링(Mirror Guide) 및 법선벡터(Normal) 플립 로직 구현 (Y 증가)
+  - VTK ICP(vtkIterativeClosestPointTransform) 기반 자동 정합(ICP Auto-Reduction) 알고리즘 구현 (Y 증가)
+- v0.060 (2026-06-23)
+  - 5번 뼈 분할 기능(Separate Bone Fragments)의 고부하 연산 멈춤 문제를 피하기 위해 UI상에서 5단계 영역(fragmentSeparationCollapsibleButton) 비활성화(숨김) 처리 (Y 증가, Z 초기화)
+- v0.051 (2026-06-23)
+  - 모듈 리로드(Reload) 및 소멸 시 파괴된 콤보박스 위젯의 ModifiedEvent 예외(TypeError: Trying to call 'setCurrentNode' on a destroyed qMRMLNodeComboBox object) 루프로 인한 응답 없음 해결을 위해 cleanup 함수에 setParameterNode(None) 추가 (Z 증가)
+  - 5번 뼈 분할 기능(separateBoneFragments)에서 세그먼트 부재, 가시성 해제, 혹은 빈 라벨맵 데이터일 때 발생하는 C++ NULL 포인터 크래시 및 응답없음 방지 3중 예외 처리 추가 (Z 증가)
+- v0.050 (2026-06-23)
+  - 5번 뼈 분할 기능(separateBoneFragments)에서 GetReferenceImageGeometryParameterFromVolumeNode 호출 크래시 및 좌표 어긋남 버그 수정 (입력 볼륨의 기하 매칭 연동 방식 도입) (Y 증가, Z 초기화)
+- v0.040 (2026-06-23)
+  - 3D 회전 제어(Live Rotation) 시 CT 볼륨뿐 아니라 세그멘테이션 메쉬 및 뼈 파편(Model) 노드까지 실시간 동기화 회전 연동 (Y 증가, Z 초기화)
+- v0.031 (2026-06-23)
+  - 모듈 초기화/씬 변경 시 SegmentEditorNode 미지정 상태의 호출 예외 방지를 위한 onInputVolumeChanged 방어 코드 보강 (Z 증가)
+  - NodeAddedEvent 문자열 ID 전달에 따른 AttributeError 및 SegmentEditor 'SetSourceVolumeNode' 설정 에러 버그 수정 (Z 증가)
+  - qSlicerApplication에 openDICOMBrowser 속성이 누락되어 발생하는 AttributeError 수정 (ActionOpenDICOMBrowser QAction 트리거 방식으로 교체) (Z 증가)
+  - PythonQt QFileDialog.getOpenFileName 반환값 언팩 오류(ValueError) 수정 및 onLoadDicomClicked에 slicer.app.openDICOMBrowser() 도입 (Z 증가)
+  - PythonQt 래핑 한계로 인한 closeEvent 동적 대입 AttributeError 오류 수정 (PlannerDialog 상속 클래스 신설) (Z 증가)
+- v0.030 (2026-06-23)
+  - 6번 가상 뼈 정복 UI 섹션 및 ICP 등록 기능 추가 배치 (Y 증가, Z 초기화)
+- v0.020 (2026-06-23)
+  - DICOM 데이터베이스 로더 버튼(loadDicomButton) 추가 배치 (Y 증가, Z 초기화)
+- v0.010 (2026-06-23)
+  - 다이렉트 파일 로더 버튼(loadVolumeButton) 배치 및 3D 뷰 회전/세그먼트 에디터 레이아웃 구성 (Y 증가, Z 초기화)
 - v0.000 (2026-06-23)
-  - 최초 작성
+  - 최초 작성 (v0.000)
 """
 import logging
 import os
