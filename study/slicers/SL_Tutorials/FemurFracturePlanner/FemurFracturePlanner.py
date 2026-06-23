@@ -327,6 +327,10 @@ class FemurFracturePlannerLogic(ScriptedLoadableModuleLogic):
             
         self.adjustVolumeRenderingThreshold(volumeNode, threshold)
         displayNode.SetVisibility(True)
+        
+        # 3D 뷰어 카메라를 이 볼륨의 위치로 자동 리셋 및 화면 강제 갱신
+        slicer.util.resetThreeDViews()
+        slicer.util.forceRenderAllViews()
 
     def hideVolumeRendering(self, volumeNode: vtkMRMLScalarVolumeNode) -> None:
         """볼륨 렌더링 가시성을 끕니다."""
