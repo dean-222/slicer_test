@@ -326,7 +326,7 @@ class FemurFracturePlannerLogic(ScriptedLoadableModuleLogic):
             slicer.mrmlScene.AddNode(displayNode)
             displayNode.SetAndObserveVolumeNodeID(volumeNode.GetID())
         
-        volRenLogic.UpdateDisplayNodeFromVolumeNode(displayNode)
+        volRenLogic.UpdateDisplayNodeFromVolumeNode(displayNode, volumeNode)
         presetNode = volRenLogic.GetPresetByName("CT-Bone")
         if presetNode:
             displayNode.GetVolumePropertyNode().Copy(presetNode)
