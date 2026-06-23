@@ -84,23 +84,32 @@
       <string>2. 3D Volume Rendering (CT-Bone)</string>
      </property>
      <layout class="QVBoxLayout" name="renderingVLayout">
-      <!-- Enable Switch -->
+      <!-- Enable Switch (Eye Icon Button) -->
       <item>
        <layout class="QHBoxLayout" name="switchHLayout">
         <item>
          <widget class="QLabel" name="enableRenderingLabel">
           <property name="text">
-           <string>Enable 3D Volume Rendering:</string>
+           <string>Volume Rendering Visibility:</string>
           </property>
          </widget>
         </item>
         <item>
-         <widget class="QCheckBox" name="volumeRenderingCheckBox">
-          <property name="toolTip">
-           <string>Toggle real-time GPU volume rendering of the CT volume.</string>
-          </property>
+         <widget class="QPushButton" name="volumeRenderingVisibilityButton">
           <property name="text">
-           <string/>
+           <string>👁️ Show</string>
+          </property>
+          <property name="checkable">
+           <bool>true</bool>
+          </property>
+          <property name="toolTip">
+           <string>Toggle 3D volume rendering visibility.</string>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>80</width>
+            <height>16777215</height>
+           </size>
           </property>
          </widget>
         </item>
