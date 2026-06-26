@@ -1,10 +1,12 @@
 """
 File Name: FemurFracturePlannerWorkflow.py
-Version: v0-2.1.2
+Version: v1-0.0.0
 Date: 2026-06-26
 Description: 대퇴골 골절 계획 모듈의 입력, 렌더링, 회전, 세그멘테이션, 가이드 모델 작업 흐름을 담당한다.
 
 Version History:
+- v1-0.0.0 (2026-06-26)
+  - 골절면 정밀 스냅 단차 정제 및 병합 ICP 안정화 완료하여 최초 정식 릴리스 출시 (v1-0.0.0 지정)
 - v0-2.1.2 (2026-06-26)
   - runFractureSurfaceSnap 실행 시 메모리에 로드된 로직 버전 및 각 골편의 부모 변환 노드 ID를 상세 보고하는 디버그 로그 보강 (Z 증가)
 - v0-2.1.1 (2026-06-26)

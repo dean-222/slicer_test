@@ -1,10 +1,12 @@
 """
 File Name: FemurFracturePlannerWidget.py
-Version: v0-2.1.0
+Version: v1-0.0.0
 Date: 2026-06-26
 Description: 대퇴골 골절 계획 모듈의 팝업 UI 생성, 위젯 생명주기 관리, 공통 이벤트 연결을 담당한다.
 
 Version History:
+- v1-0.0.0 (2026-06-26)
+  - 골절면 정밀 스냅 단차 정제 및 병합 ICP 안정화 완료하여 최초 정식 릴리스 출시 (v1-0.0.0 지정)
 - v0-2.1.0 (2026-06-26)
   - 가상 뼈 정복 패널 하단에 실시간 정합 진행 상태를 표시하기 위한 QTextEdit 로그 위젯(reductionLogWidget) 동적 삽입 추가 (Y 증가, Z 0 초기화)
 - v0-2.0.1 (2026-06-25)

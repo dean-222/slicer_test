@@ -1,10 +1,20 @@
 """
 File Name: FemurFracturePlannerLogic.py
-Version: v0-2.3.12
+Version: v1-0.0.0
 Date: 2026-06-26
 Description: 대퇴골 골절 계획 모듈의 Volume Rendering, 골편 분리, 모델 정합 계산 로직을 담당한다.
 
 Version History:
+- v1-0.0.0 (2026-06-26)
+  - 골절면 정밀 스냅 단차 정제 및 병합 ICP 안정화 완료하여 최초 정식 릴리스 출시 (v1-0.0.0 지정)
+- v0-3.1.2 (2026-06-26)
+  - 2-Stage ICP가 점 데이터만으로는 형상 붕괴를 일으키는 문제를 단일 LandmarkTransform 구조로 원상 복구하여 뼈 튕김 오류를 긴급 수정하고, 대신 법선 내적(-0.6) 및 장축 정렬(0.4) 필터링 조건을 강화하여 단차 및 각도 오류 해결 (Z 증가)
+- v0-3.1.1 (2026-06-26)
+  - runFractureSurfaceSnap 함수 내에서 vtkMatrix4x4 객체에 존재하지 않는 TransformPoint 호출로 인한 AttributeError 런타임 오류 수정 (Z 증가)
+- v0-3.1.0 (2026-06-26)
+  - 골절 단면의 미세 단차 및 각도 뒤틀림을 극복하기 위해 1차 강체 Landmark 정합 후 2차 미세 ICP 정합을 결합한 2-Stage 하이브리드 스냅 정합 알고리즘 도입 (Y 증가)
+- v0-3.0.0 (2026-06-26)
+  - 개별 골편 ICP의 정합 어긋남 한계를 극복하기 위해 vtkAppendPolyData 기반 병합 ICP(Combined ICP) 알고리즘 도입 (X 증가, Y/Z 초기화)
 - v0-2.3.12 (2026-06-26)
   - 단면 간 초기 수평/수직 오프셋 보정 알고리즘을 도입하여 두 골편이 어긋난 상태에서도 단면 중심으로 수평/수직 축이 완벽히 일치하도록 스냅 버그 수정 (Z 증가)
 - v0-2.3.11 (2026-06-26)
@@ -91,7 +101,7 @@ class FemurFracturePlannerLogic(ScriptedLoadableModuleLogic):
     6. ICP(Iterative Closest Point) 강체 정합 알고리즘을 통한 뼈 조각 자동 위치 정렬
     7. 최근접 점 탐색(KD-Tree) 및 Landmark 강체 변환을 통한 골절 단면 정밀 밀착(Snap) 연산
     """
-    VERSION = "v0-2.3.12"
+    VERSION = "v1-0.0.0"
 
     # =========================================================================
     # 알고리즘 상수 설정 (Parameters)
@@ -629,20 +639,13 @@ class FemurFracturePlannerLogic(ScriptedLoadableModuleLogic):
 
     def runIcpRegistration(self, fragmentModelNodes: list, guideModelNode, logCallback=None) -> None:
         """
-        [가이드 모델 기반 뼈 조각 자동 ICP(Iterative Closest Point) 정합 알고리즘]
+        [가이드 모델 기반 뼈 조각 자동 병합 ICP(Combined Iterative Closest Point) 정합 알고리즘]
         
-        각 뼈 파편(Model) 메쉬를 참조 수술 가이드 뼈 표면에 정렬하기 위해, 
-        메쉬 고유 포인트들을 왜곡하지 않고 각 파편의 부모 변환 노드(vtkMRMLLinearTransformNode)의 
-        4x4 로컬 아핀 행렬을 찾아 갱신한다.
-        
-        수학적 연산 흐름:
-        1. 가이드 모델 및 대상 뼈 파편에 적용된 누적 월드 변환 행렬을 각각 적용하여 두 메쉬의 포인트들을 월드 좌표계 공간으로 도출한다.
-        2. VTK Iterative Closest Point Transform(vtkIterativeClosestPointTransform)에 두 월드 좌표 메쉬를 로드한다.
-        3. 회전 및 평행이동만 허용하는 RigidBody(강체) 모드로 설정하고, 최대 반복 횟수(300회) 및 샘플 랜드마크 수(1000개)를 넓혀 정밀도를 고도화한다.
-        4. 사용자가 UI 상에서 사전에 맞춰둔 수동 배치 의도를 지키기 위해 Centroid 매칭(StartByMatchingCentroids) 기능은 강제 비활성화한다.
-        5. 결과로 획득된 델타 ICP 변환 행렬(M_delta)과 기존 월드 행렬(W_current)을 행렬곱 연산(W_new = M_delta * W_current)한다.
-        6. 만약 파편에 상위 부모 변환 노드가 존재한다면, 역행렬 곱 연산(L_new = W_parent_inv * W_new)을 거쳐 
-           부모 좌표계 기준의 안전한 로컬 행렬을 도출 및 적용함으로써, Slicer 계층 구조 왜곡 현상을 방지한다.
+        기존 개별 ICP 정합의 한계(각 골편이 따로 놀면서 정합 후 골절선이 어긋나는 현상)를 극복하기 위해,
+        선택된 모든 골편 메쉬를 현재의 상대적 정렬 상태 그대로 하나의 가상 묶음(Combined PolyData)으로 병합한 뒤
+        가이드 모델에 통째로 강체 정합을 수행합니다. 
+        그 후 산출된 공통의 4x4 델타 행렬을 각 골편의 부모 변환 노드에 적용하여, 골절면 맞물림을 완벽히 유지하며 
+        가이드 기준의 해부학적 축으로 정렬되도록 합니다.
         
         Args:
             fragmentModelNodes: 정합을 수행할 Femur_Fragment_* 모델 노드 목록
@@ -654,8 +657,6 @@ class FemurFracturePlannerLogic(ScriptedLoadableModuleLogic):
         guidePolyData = guideModelNode.GetPolyData()
 
         # 가이드 모델의 월드 좌표계 변환을 계산하여 가이드 메쉬 준비
-        # ICP는 두 메쉬가 같은 좌표계에 있다고 가정한다.
-        # 따라서 부모 transform이 있으면 먼저 월드 좌표로 변환한 복사본을 만든다.
         guideTransformNode = guideModelNode.GetParentTransformNode()
         if guideTransformNode:
             gTransform = vtk.vtkTransform()
@@ -669,64 +670,90 @@ class FemurFracturePlannerLogic(ScriptedLoadableModuleLogic):
             gtfFilter.Update()
             guidePolyData = gtfFilter.GetOutput()
 
+        # 가이드 모델 메쉬 고립 정점 제거 전처리
+        cleanGuide = vtk.vtkCleanPolyData()
+        cleanGuide.SetInputData(guidePolyData)
+        cleanGuide.Update()
+        guidePolyData = cleanGuide.GetOutput()
+
+        # 1. 모든 골편의 월드 좌표 메쉬를 수집하여 하나의 묶음으로 병합
+        appendFilter = vtk.vtkAppendPolyData()
+        validFragmentsCount = 0
+
         for fragNode in fragmentModelNodes:
             if not fragNode or not fragNode.GetPolyData():
                 continue
 
             transformNode = fragNode.GetParentTransformNode()
-            # 로컬 이동/회전을 관리할 전용 변환 노드가 없으면 새로 신설
             if not transformNode:
                 transformNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLinearTransformNode")
                 transformNode.SetName(f"{fragNode.GetName()}_Transform")
                 fragNode.SetAndObserveTransformNodeID(transformNode.GetID())
 
-            currentPoly = fragNode.GetPolyData()
+            # A. 골편 메쉬 고립 정점 제거 전처리
+            cleanFilter = vtk.vtkCleanPolyData()
+            cleanFilter.SetInputData(fragNode.GetPolyData())
+            cleanFilter.Update()
+            cleanedPoly = cleanFilter.GetOutput()
 
-            # 현재 파편의 누적 월드 변환 행렬 획득
-            # transform node에 저장된 행렬은 화면상 이동/회전 값을 담고 있다.
-            # 이 값을 메쉬에 적용해야 ICP가 사용자가 보는 위치 기준으로 계산된다.
+            # B. 현재의 누적 월드 변환 행렬 획득 및 적용
             worldMatrix = vtk.vtkMatrix4x4()
             transformNode.GetMatrixTransformToWorld(worldMatrix)
 
             transform = vtk.vtkTransform()
             transform.SetMatrix(worldMatrix)
 
-            # 월드 좌표 공간의 파편 메쉬 포인트들 생성
             tfFilter = vtk.vtkTransformPolyDataFilter()
-            tfFilter.SetInputData(currentPoly)
+            tfFilter.SetInputData(cleanedPoly)
             tfFilter.SetTransform(transform)
             tfFilter.Update()
-            sourceWorldPoly = tfFilter.GetOutput()
 
-            # ICP 정합 설정 및 구동
-            # ICP는 source의 각 점이 target 표면에 가까워지도록 회전/이동을 반복해서 찾는 알고리즘이다.
-            # 여기서는 뼈 크기를 바꾸지 않도록 RigidBody 모드, 즉 회전과 평행이동만 허용한다.
-            icp = vtk.vtkIterativeClosestPointTransform()
-            icp.SetSource(sourceWorldPoly)
-            icp.SetTarget(guidePolyData)
-            icp.GetLandmarkTransform().SetModeToRigidBody()  # 회전/이동만 허용
-            icp.SetMaximumNumberOfIterations(self.ICP_MAX_ITERATIONS)
-            icp.SetMaximumNumberOfLandmarks(self.ICP_MAX_LANDMARKS)
-            icp.CheckMeanDistanceOn()
-            icp.SetMaximumMeanDistance(self.ICP_CONVERGENCE_DISTANCE)  # 수렴 오차 거리 설정
-            icp.StartByMatchingCentroidsOff()  # 임의 중심 정렬 끄기
-            icp.Update()
+            appendFilter.AddInputData(tfFilter.GetOutput())
+            validFragmentsCount += 1
 
+        if validFragmentsCount == 0:
             if logCallback:
-                logCallback(
-                    f"[{fragNode.GetName()}] ICP 정합 완료: 평균 오차 {icp.GetMeanDistance():.4f} mm, 반복 횟수 {icp.GetNumberOfIterations()}회"
-                )
+                logCallback("정합을 실행할 유효한 골편 모델이 없습니다.")
+            return
 
-            # 계산된 델타 행렬
-            icpMatrix = icp.GetMatrix()
+        appendFilter.Update()
+        combinedSourcePoly = appendFilter.GetOutput()
 
-            # 신규 월드 변환 행렬 계산
+        # 2. 병합된 단일 소스 메쉬와 가이드 표면 간 ICP 정합 구동
+        icp = vtk.vtkIterativeClosestPointTransform()
+        icp.SetSource(combinedSourcePoly)
+        icp.SetTarget(guidePolyData)
+        icp.GetLandmarkTransform().SetModeToRigidBody()  # 강체 회전/평행이동만 허용
+        icp.SetMaximumNumberOfIterations(self.ICP_MAX_ITERATIONS)
+        icp.SetMaximumNumberOfLandmarks(self.ICP_MAX_LANDMARKS)
+        icp.CheckMeanDistanceOn()
+        icp.SetMaximumMeanDistance(self.ICP_CONVERGENCE_DISTANCE)
+        icp.StartByMatchingCentroidsOff()  # 사용자 초기 대략적 배치 의도 보존
+        icp.Update()
+
+        if logCallback:
+            logCallback(
+                f"병합 ICP 정합 완료: 평균 오차 {icp.GetMeanDistance():.4f} mm, 반복 횟수 {icp.GetNumberOfIterations()}회"
+            )
+
+        # 3. 획득된 공통 델타 ICP 변환 행렬
+        icpMatrix = icp.GetMatrix()
+
+        # 4. 각 골편에 공통 델타 행렬을 누적 곱셈하여 개별 변환 노드 갱신
+        for fragNode in fragmentModelNodes:
+            if not fragNode or not fragNode.GetPolyData():
+                continue
+
+            transformNode = fragNode.GetParentTransformNode()
+            if not transformNode:
+                continue
+
+            worldMatrix = vtk.vtkMatrix4x4()
+            transformNode.GetMatrixTransformToWorld(worldMatrix)
+
             newWorldMatrix = vtk.vtkMatrix4x4()
             vtk.vtkMatrix4x4.Multiply4x4(icpMatrix, worldMatrix, newWorldMatrix)
 
-            # 부모 변환 노드가 있다면 역행렬 처리를 하여 로컬 변환 계산
-            # Slicer의 transform은 부모-자식 계층을 가질 수 있다.
-            # 부모 transform이 있으면 월드 행렬을 그대로 넣지 말고 부모 기준 로컬 행렬로 바꿔야 한다.
             parentTransformNode = transformNode.GetParentTransformNode()
             if parentTransformNode:
                 parentWorldMatrix = vtk.vtkMatrix4x4()
@@ -740,10 +767,8 @@ class FemurFracturePlannerLogic(ScriptedLoadableModuleLogic):
             else:
                 newLocalMatrix = newWorldMatrix
 
-            # 새로운 선형 변환 대입
             transformNode.SetMatrixTransformToParent(newLocalMatrix)
 
-            # ICP가 정상 정비되면 수동 조절 핸들(3D Gizmo)은 시야 확보를 위해 자동으로 숨김
             displayNode = transformNode.GetDisplayNode()
             if displayNode:
                 displayNode.SetEditorVisibility(False)
@@ -909,13 +934,12 @@ class FemurFracturePlannerLogic(ScriptedLoadableModuleLogic):
         import math
         numPoints1 = poly1Sampled.GetNumberOfPoints()
 
-        # 법선 내적(Dot Product) 임계값: -0.3 이하
-        # -1.0에 가까울수록 두 표면의 법선 벡터가 정반대로 향하고 있음(서로 마주침)을 의미한다.
-        # 일반적인 골절면 접합 및 골편 정합 시, 약 -0.3 이하일 때 유효한 맞물림 영역으로 판별한다.
-        NORMAL_DOT_LIMIT = -0.3
+        # 법선 내적(Dot Product) 임계값: -0.6 이하 (정확히 단면끼리 대향하는 부위만 추출하여 미세 뒤틀림/단차 제거)
+        NORMAL_DOT_LIMIT = -0.6
 
         # [신규] 단면 영역 무게중심 계산을 통한 초기 수평/수직 오프셋 보정 (X-Y 정렬 쏠림 및 오정합 극복)
-        FRACTURE_AXIS_LIMIT = 0.25
+        # Z축 장축에 더 가까운 뼈 단면 방향의 평면만 필터링하여 아웃라이어 유입을 차단하기 위해 0.4로 정교화
+        FRACTURE_AXIS_LIMIT = 0.4
         
         sumPt1 = [0.0, 0.0, 0.0]
         cnt1 = 0
@@ -1009,7 +1033,7 @@ class FemurFracturePlannerLogic(ScriptedLoadableModuleLogic):
                 n1 = poly1Normals.GetTuple(i)
                 n2 = poly2Normals.GetTuple(closestPointId)
                 
-                # 마진 필터로 대다수 노이즈가 제거되므로 축 임계값은 0.25로 완화하여 적용
+                # 마진 필터로 대다수 노이즈가 제거되므로 축 임계값은 0.4로 정교하게 적용
                 isFractureSurface1 = abs(n1[2]) >= FRACTURE_AXIS_LIMIT
                 isFractureSurface2 = abs(n2[2]) >= FRACTURE_AXIS_LIMIT
 
@@ -1032,17 +1056,9 @@ class FemurFracturePlannerLogic(ScriptedLoadableModuleLogic):
                 f"골절면 스냅 후보 수집 완료: 총 {sourcePoints.GetNumberOfPoints()}개 정점 쌍 매칭 (임계 거리: {self.SNAP_DISTANCE_LIMIT}mm)"
             )
 
-        # 수집된 대량 점쌍 집합을 vtkPolyData 3D 객체 구조로 래핑
-        # vtkIterativeClosestPointTransform(ICP)는 점 구름 기반 반복 수렴을 위해 PolyData 입력을 요구한다.
-        sourcePoly = vtk.vtkPolyData()
-        sourcePoly.SetPoints(sourcePoints)
-
-        targetPoly = vtk.vtkPolyData()
-        targetPoly.SetPoints(targetPoints)
-
-        # 1:1로 수립된 고정밀 골절면 대응점 간 최소제곱법 기반 강체 Landmark 변환 구동
-        # 법선/축 필터링으로 옆구리 노이즈(Cortex)가 제거된 상태이므로,
-        # ICP에서 조기 수렴 종료되던 문제를 봉쇄하고 vtkLandmarkTransform을 통해 완벽한 정복 정합을 수행한다.
+        # 1:1로 수립된 고정밀 골절면 대응점 간 최소제곱법 기반 강체 Landmark 변환 구동 (원샷 클로즈드폼 최적해 도출)
+        # 면(Cell) 정보가 없는 포인트 클라우드에 2-Stage ICP를 강제 연산 시 행렬이 붕괴하여 날아가는 문제가 확인되었으므로,
+        # 다시 안정적인 단일 landmarkTransform 정합 구조로 환원하고, 대신 법선/축 임계값 강화로 노이즈를 완전 차단하여 단차를 정밀 해결합니다.
         landmarkTransform = vtk.vtkLandmarkTransform()
         landmarkTransform.SetSourceLandmarks(sourcePoints)
         landmarkTransform.SetTargetLandmarks(targetPoints)

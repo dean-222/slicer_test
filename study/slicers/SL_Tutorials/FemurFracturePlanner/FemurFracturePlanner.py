@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 """
 File Name: FemurFracturePlanner.py
-Version: v0-22.0.0
+Version: v1-0.0.0
 Date: 2026-06-26
 Description: 대퇴골 골절 계획 플래너 모듈의 메인 진입점 및 자가 테스트 코드를 포함하는 파일이다.
 
 Version History:
+- v1-0.0.0 (2026-06-26)
+  - 골절면 정밀 스냅 단차 정제 및 병합 ICP 안정화 완료하여 최초 정식 릴리스 출시 (v1-0.0.0 지정)
 - v0-22.0.0 (2026-06-26)
   - 마스킹 영역 전체를 덩어리로 추출하지 않고 원본 뼈 모델의 표면 정보 중 마스크 내부에 속한 '얇은 표면 점군(Point Cloud)'만 지능적으로 필터링하여 ICP 겹침(Interpenetration) 현상을 차단 (X 증가)
 - v0-21.0.0 (2026-06-26)
