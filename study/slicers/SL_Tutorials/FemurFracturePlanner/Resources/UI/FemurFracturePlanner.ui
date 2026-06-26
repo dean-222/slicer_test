@@ -586,6 +586,16 @@ Version History:
               </property>
              </widget>
             </item>
+            <item>
+             <widget class="QPushButton" name="clearMasksButton">
+              <property name="text">
+               <string>🧽 색칠한 마스킹 영역 모두 지우기</string>
+              </property>
+              <property name="toolTip">
+               <string>칠해진 마스킹 영역(Targeting_Source_ROI, Targeting_Target_ROI)을 깨끗하게 비웁니다.</string>
+              </property>
+             </widget>
+            </item>
            </layout>
           </widget>
          </item>

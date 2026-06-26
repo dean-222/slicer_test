@@ -1,10 +1,17 @@
 """
 File Name: FemurFracturePlannerWorkflow.py
-Version: v0-2.0.1
-Date: 2026-06-25
+Version: v0-2.1.2
+Date: 2026-06-26
 Description: 대퇴골 골절 계획 모듈의 입력, 렌더링, 회전, 세그멘테이션, 가이드 모델 작업 흐름을 담당한다.
 
 Version History:
+- v0-2.1.2 (2026-06-26)
+  - runFractureSurfaceSnap 실행 시 메모리에 로드된 로직 버전 및 각 골편의 부모 변환 노드 ID를 상세 보고하는 디버그 로그 보강 (Z 증가)
+- v0-2.1.1 (2026-06-26)
+  - onRunSurfaceSnapClicked 내에서 이름으로 노드 획득 시 동일 노드가 이중 할당되어 오동작하던 버그를 ID 중복 검증 로직으로 해결 (Z 증가)
+- v0-2.1.0 (2026-06-26)
+  - 실시간 정합 진행 상태 출력을 위한 addLogMessage 메서드 추가
+  - onRunIcpReductionClicked 및 onRunSurfaceSnapClicked 핸들러에 로그 연동(logCallback) 구현 적용 (Y 증가, Z 0 초기화)
 - v0-2.0.1 (2026-06-25)
   - 골편 분리 성공 시 volumeRendering 토글 여부와 상관없이 무조건 목록 테이블이 갱신되도록 분기문 논리 오류 수정 (Z 증가)
 - v0-2.0.0 (2026-06-24)
@@ -443,6 +450,16 @@ class FemurFracturePlannerWorkflowMixin:
                 self.ui.guideModelSelector.setCurrentNode(mirroredNode)
                 slicer.util.infoDisplay(_(f"가이드 모델을 미러링했습니다: '{mirroredNode.GetName()}'"))
 
+    def addLogMessage(self, message: str) -> None:
+        """가상 뼈 정복 진행 로그 창에 시간 정보와 함께 메시지를 추가한다."""
+        if hasattr(self.ui, "reductionLogWidget") and self.ui.reductionLogWidget:
+            import datetime
+            timeStr = datetime.datetime.now().strftime("%H:%M:%S")
+            self.ui.reductionLogWidget.append(f"[{timeStr}] {message}")
+            self.ui.reductionLogWidget.ensureCursorVisible()
+            # UI 이벤트를 즉시 강제 처리하여 실시간 출력 갱신
+            slicer.app.processEvents()
+
     def onRunIcpReductionClicked(self) -> None:
         """7단계: 분리된 골편들의 정점을 가이드 뼈 표면에 매칭하여 최적 정합 4x4 부모 변환 행렬을 자동 산출하고 정렬한다."""
         guideNode = self.ui.guideModelSelector.currentNode()
@@ -462,10 +479,19 @@ class FemurFracturePlannerWorkflowMixin:
             slicer.util.errorDisplay(_("분리된 골편(Femur_Fragment_*)이 없습니다. 먼저 5단계를 실행하세요."))
             return
 
+        if hasattr(self.ui, "reductionLogWidget") and self.ui.reductionLogWidget:
+            self.ui.reductionLogWidget.clear()
+            self.addLogMessage("========================================")
+            self.addLogMessage("ICP 자동 정복(Auto-Reduction) 연산 시작...")
+            self.addLogMessage(f"정합 대상 골편 수: {len(fragmentNodes)}개")
+            self.addLogMessage(f"기준 가이드 모델: '{guideNode.GetName()}'")
+            self.addLogMessage("========================================")
+
         logging.info(f"Running ICP auto-reduction for {len(fragmentNodes)} fragments against guide: '{guideNode.GetName()}'")
         with slicer.util.tryWithErrorDisplay(_("ICP 자동 정복 실행에 실패했습니다."), waitCursor=True):
-            self.logic.runIcpRegistration(fragmentNodes, guideNode)
+            self.logic.runIcpRegistration(fragmentNodes, guideNode, logCallback=self.addLogMessage)
             self.updateFragmentTable()
+            self.addLogMessage("▶ ICP 자동 정복이 최종 성공적으로 완료되었습니다.")
             slicer.util.infoDisplay(_("ICP 자동 정복이 완료되었습니다."))
 
     def onRunSurfaceSnapClicked(self) -> None:
@@ -483,25 +509,48 @@ class FemurFracturePlannerWorkflowMixin:
             )
             return
 
-        frag1 = slicer.mrmlScene.GetFirstNodeByName("Femur_Fragment_1")
-        frag2 = slicer.mrmlScene.GetFirstNodeByName("Femur_Fragment_2")
-        if not frag1 or not frag2:
-            # 이름이 바뀐 경우에도 최소 두 개의 골편이 있으면 앞의 두 개를 사용한다.
+        # 씬에 등록된 Femur_Fragment_* 접두사를 가진 노드 중 고유한 1번과 2번 노드를 추출
+        frag1 = None
+        frag2 = None
+        for node in fragmentNodes:
+            if "Fragment_1" in node.GetName():
+                frag1 = node
+            elif "Fragment_2" in node.GetName():
+                frag2 = node
+
+        # 이름 불일치 혹은 중복 시 순차 리스트 적용
+        if not frag1 or not frag2 or frag1.GetID() == frag2.GetID():
             frag1 = fragmentNodes[0]
             frag2 = fragmentNodes[1]
 
+        if frag1.GetID() == frag2.GetID():
+            slicer.util.errorDisplay(_("오류: 정합 대상 두 골편 노드가 동일한 객체입니다. 씬 노드를 확인하세요."))
+            return
+
+        if hasattr(self.ui, "reductionLogWidget") and self.ui.reductionLogWidget:
+            self.ui.reductionLogWidget.clear()
+            self.addLogMessage("========================================")
+            self.addLogMessage("Fracture Surface Snap 정합 연산 시작...")
+            self.addLogMessage(f"실행 로직 버전: {self.logic.VERSION if hasattr(self.logic, 'VERSION') else 'Unknown (캐시꼬임)'}")
+            self.addLogMessage(f"움직일 대상: '{frag1.GetName()}' (ID: {frag1.GetID()})")
+            self.addLogMessage(f"└─ Parent Transform ID: {frag1.GetParentTransformNode().GetID() if frag1.GetParentTransformNode() else 'None'}")
+            self.addLogMessage(f"고정된 기준: '{frag2.GetName()}' (ID: {frag2.GetID()})")
+            self.addLogMessage(f"└─ Parent Transform ID: {frag2.GetParentTransformNode().GetID() if frag2.GetParentTransformNode() else 'None'}")
+            self.addLogMessage("========================================")
+
         logging.info(f"Running Fracture Surface Snap between: '{frag1.GetName()}' and '{frag2.GetName()}'")
         with slicer.util.tryWithErrorDisplay(_("Fracture Surface Snap 실행에 실패했습니다. 골절면이 충분히 가까운지 확인하세요."), waitCursor=True):
-            self.logic.runFractureSurfaceSnap(frag1, frag2)
+            self.logic.runFractureSurfaceSnap(frag1, frag2, logCallback=self.addLogMessage)
             self.updateFragmentTable()
             self.onFragmentTableSelectionChanged()
+            self.addLogMessage("▶ Fracture Surface Snap이 최종 성공적으로 완료되었습니다.")
             slicer.util.infoDisplay(_("Fracture Surface Snap이 완료되었습니다."))
 
     def onRunLandmarkMatchClicked(self) -> None:
         """수동 타겟팅: 마커 기반 정밀 매칭 (점 찍기)"""
         guideNode = self.ui.guideModelSelector.currentNode()
         if not guideNode:
-            slicer.util.errorDisplay(_("먼저 가이드 모델을 선택하세요."))
+            slicer.util.errorDisplay(_("먼저 타겟 뼈를 위 '가이드 모델(또는 기준 골편)' 창에서 선택하세요."))
             return
             
         selectedItems = self.ui.fragmentTableWidget.selectedItems()
@@ -531,7 +580,7 @@ class FemurFracturePlannerWorkflowMixin:
                 
             slicer.util.infoDisplay(_("마커 노드가 생성되어 '마우스 점 찍기 모드'가 자동으로 켜졌습니다.\n\n"
                                       "1. 3D 뷰어에서 움직일 대상 골편 표면에 점 3개를 클릭해 찍습니다.\n"
-                                      "2. 이어서 기준 가이드 표면에 똑같이 점 3개를 연달아 찍습니다. (총 6개)\n"
+                                      "2. 이어서 타겟 뼈(가이드 또는 기준 골편) 표면에 똑같이 점 3개를 찍습니다. (총 6개)\n"
                                       "3. 완료 후 이 버튼을 다시 눌러주세요."))
             return
             
@@ -567,7 +616,7 @@ class FemurFracturePlannerWorkflowMixin:
         """수동 타겟팅: 색칠 영역 기반 매칭 (마스킹)"""
         guideNode = self.ui.guideModelSelector.currentNode()
         if not guideNode:
-            slicer.util.errorDisplay(_("먼저 가이드 모델을 선택하세요."))
+            slicer.util.errorDisplay(_("먼저 타겟 뼈를 위 '가이드 모델(또는 기준 골편)' 창에서 선택하세요."))
             return
             
         selectedItems = self.ui.fragmentTableWidget.selectedItems()
@@ -595,7 +644,7 @@ class FemurFracturePlannerWorkflowMixin:
             
             slicer.util.infoDisplay(_("세그멘테이션 라벨(Targeting_Source_ROI, Targeting_Target_ROI)이 추가되었습니다.\n\n"
                                       "4번 Segment Editor 탭에서 Paint 브러시를 이용해\n"
-                                      "움직일 골편 단면과 기준 가이드 단면을 각각 색칠한 뒤\n"
+                                      "움직일 골편 단면과 타겟 뼈(가이드 또는 기준 골편) 단면을 각각 색칠한 뒤\n"
                                       "이 버튼을 다시 눌러주세요."))
             return
             
@@ -622,6 +671,30 @@ class FemurFracturePlannerWorkflowMixin:
             slicer.util.infoDisplay(_("마커(점)가 모두 지워졌습니다. 이제 다시 정확한 위치에 순서대로 점을 찍어주세요."))
         else:
             slicer.util.infoDisplay(_("지울 마커가 없습니다."))
+
+    def onClearMasksClicked(self) -> None:
+        """수동 타겟팅용 마스킹(색칠 영역) 라벨들을 깨끗하게 비운다."""
+        segNode = self.ui.activeSegmentationSelector.currentNode()
+        if not segNode:
+            slicer.util.infoDisplay(_("선택된 세그멘테이션 노드가 없습니다."))
+            return
+            
+        segmentation = segNode.GetSegmentation()
+        sourceSegId = segmentation.GetSegmentIdBySegmentName("Targeting_Source_ROI")
+        targetSegId = segmentation.GetSegmentIdBySegmentName("Targeting_Target_ROI")
+        
+        cleared = False
+        if sourceSegId:
+            segmentation.RemoveSegment(sourceSegId)
+            cleared = True
+        if targetSegId:
+            segmentation.RemoveSegment(targetSegId)
+            cleared = True
+            
+        if cleared:
+            slicer.util.infoDisplay(_("색칠된 마스킹 영역이 모두 지워졌습니다."))
+        else:
+            slicer.util.infoDisplay(_("지울 마스킹 영역이 없습니다."))
 
     def onLoadGuideClicked(self) -> None:
         """외부 3D 뼈 파일(*.stl, *.obj 등)을 다이렉트 선택 로드하여 가이드 모델 노드로 배치한다."""

@@ -1,10 +1,12 @@
 """
 File Name: FemurFracturePlannerWidget.py
-Version: v0-2.0.1
-Date: 2026-06-25
+Version: v0-2.1.0
+Date: 2026-06-26
 Description: 대퇴골 골절 계획 모듈의 팝업 UI 생성, 위젯 생명주기 관리, 공통 이벤트 연결을 담당한다.
 
 Version History:
+- v0-2.1.0 (2026-06-26)
+  - 가상 뼈 정복 패널 하단에 실시간 정합 진행 상태를 표시하기 위한 QTextEdit 로그 위젯(reductionLogWidget) 동적 삽입 추가 (Y 증가, Z 0 초기화)
 - v0-2.0.1 (2026-06-25)
   - 가이드 모델 보기/숨기기 버튼(guideVisibilityButton) 클릭 시 toggled 이벤트가 동작하도록 checkable 속성을 True로 켜주는 패치 적용 (Z 증가)
 - v0-2.0.0 (2026-06-24)
@@ -230,10 +232,25 @@ class FemurFracturePlannerWidget(
         self.segmentEditorWidget.connect("segmentationNodeChanged(vtkMRMLSegmentationNode*)", self.onEditorSegmentationNodeChanged)
         self.ui.mirrorGuideButton.connect("clicked(bool)", self.onMirrorGuideClicked)
         self.ui.runIcpReductionButton.connect("clicked(bool)", self.onRunIcpReductionClicked)
-        self.ui.runSurfaceSnapButton.connect("clicked(bool)", self.onRunSurfaceSnapClicked)
+        self.ui.runSurfaceSnapButton.connect("clicked(bool)", self.onRunSurfaceSnapClicked)        # 수동 정밀 매칭 및 초기화 버튼들
         self.ui.runLandmarkMatchButton.connect("clicked(bool)", self.onRunLandmarkMatchClicked)
+
+        # 6. 가상 뼈 정복 하단부에 로그 창 동적 생성 및 레이아웃 배치
+        if hasattr(self.ui, "virtualReductionCollapsibleButton"):
+            self.ui.reductionLogWidget = qt.QTextEdit()
+            self.ui.reductionLogWidget.setReadOnly(True)
+            self.ui.reductionLogWidget.setMinimumHeight(100)
+            self.ui.reductionLogWidget.setMaximumHeight(140)
+            self.ui.reductionLogWidget.setPlaceholderText("여기에 정합(ICP 및 골절면 스냅) 진행 로그가 표시됩니다...")
+            self.ui.reductionLogWidget.setStyleSheet(
+                "QTextEdit { background-color: #fafafa; border: 1px solid #ddd; font-family: monospace; font-size: 11px; color: #263238; padding: 4px; }"
+            )
+            
+            if hasattr(self.ui, "reductionFormLayout") and self.ui.reductionFormLayout:
+                self.ui.reductionFormLayout.addRow("진행 로그:", self.ui.reductionLogWidget)
         self.ui.runMaskMatchButton.connect("clicked(bool)", self.onRunMaskMatchClicked)
         self.ui.clearMarkersButton.connect("clicked(bool)", self.onClearMarkersClicked)
+        self.ui.clearMasksButton.connect("clicked(bool)", self.onClearMasksClicked)
         self.ui.loadGuideButton.connect("clicked(bool)", self.onLoadGuideClicked)
         # guideVisibilityButton은 QPushButton이므로 toggled 시그널 발생을 위해 checkable 속성을 True로 활성화
         self.ui.guideVisibilityButton.setCheckable(True)

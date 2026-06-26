@@ -1,10 +1,36 @@
 """
 File Name: FemurFracturePlannerLogic.py
-Version: v0-2.2.2
-Date: 2026-06-25
+Version: v0-2.3.12
+Date: 2026-06-26
 Description: 대퇴골 골절 계획 모듈의 Volume Rendering, 골편 분리, 모델 정합 계산 로직을 담당한다.
 
 Version History:
+- v0-2.3.12 (2026-06-26)
+  - 단면 간 초기 수평/수직 오프셋 보정 알고리즘을 도입하여 두 골편이 어긋난 상태에서도 단면 중심으로 수평/수직 축이 완벽히 일치하도록 스냅 버그 수정 (Z 증가)
+- v0-2.3.11 (2026-06-26)
+  - 클래스 내부 VERSION 변수값을 v0-2.3.11로 올바르게 업데이트하여 진행 로그에 실제 버전이 출력되도록 수정 (Z 증가)
+- v0-2.3.10 (2026-06-26)
+  - runFractureSurfaceSnap 함수 시작부에 vtkCleanPolyData를 적용하여 고립 정점을 제거하고 정합 연산의 안정성을 높임 (Z 증가)
+- v0-2.3.9 (2026-06-26)
+  - runFractureSurfaceSnap 함수 내에서 Bounding Box/Center 기반 20mm 끝단 마진 공간 필터링 적용 (Z 증가)
+- v0-2.3.8 (2026-06-26)
+  - runFractureSurfaceSnap 내에 월드 행렬 번역 성분, 메쉬 Center/Bounds, 매칭 점 좌표 상세 디버그 로그 보강 (Z 증가)
+- v0-2.3.7 (2026-06-26)
+  - 런타임 캐시 꼬임 여부 추적 및 변환 노드 동일성 분석을 위해 클래스 내 VERSION 변수 정의 (Z 증가)
+- v0-2.3.6 (2026-06-26)
+  - runFractureSurfaceSnap 시작 부분에 두 입력 노드가 동일 노드인지 체크하는 ID 검증 방어 로직 추가 (Z 증가)
+- v0-2.3.5 (2026-06-26)
+  - 뼈가 사선으로 누워 있을 때 법선 필터링이 우회되는 문제를 막기 위해 GetBounds/Center 기반 상하 경계 끝단(20mm 마진) 공간 필터링 조건 도입 (Z 증가)
+- v0-2.3.4 (2026-06-26)
+  - runFractureSurfaceSnap 함수 내에서 parent1 변수 누락으로 인한 NameError 버그 수정 (Z 증가)
+- v0-2.3.3 (2026-06-26)
+  - runFractureSurfaceSnap 함수 내에서 1:1 대응점이 완료된 포인트 쌍에 ICP를 무리하게 적용하여 0회 반복 수렴 조기 종료되던 버그를 vtkLandmarkTransform 원샷 정합으로 수정 (Z 증가)
+- v0-2.3.1 (2026-06-26)
+  - runFractureSurfaceSnap 함수 내에서 옆구리(Cortex) 오정합을 방지하기 위해 뼈 장축(Z축) 방향 법선 성분 필터링 조건을 추가하여 오정합 버그 수정 (Z 증가)
+- v0-2.3.0 (2026-06-26)
+  - runFractureSurfaceSnap 함수 내 골절면 스냅 계산 시 법선 벡터(Normal) 내적 조건을 추가하여 정밀도 개선
+  - vtkMaskPoints 필터를 도입하여 정점 데이터를 다운샘플링함으로써 파이썬 루프 연산 성능 대폭 향상 (Y 증가, Z 0 초기화)
+  - runIcpRegistration 및 runFractureSurfaceSnap에 진행 보고용 로그 콜백(logCallback) 인터페이스 지원 추가
 - v0-2.2.2 (2026-06-25)
   - 골편 분리 생성 시 컬러 테이블 노드 의존성을 제거하고, 확정적인 고대비(High-contrast) 색상 리스트를 적용하여 골편 간 시각적 구분을 명확히 개선 (Z 증가)
 - v0-2.2.1 (2026-06-25)
@@ -65,6 +91,7 @@ class FemurFracturePlannerLogic(ScriptedLoadableModuleLogic):
     6. ICP(Iterative Closest Point) 강체 정합 알고리즘을 통한 뼈 조각 자동 위치 정렬
     7. 최근접 점 탐색(KD-Tree) 및 Landmark 강체 변환을 통한 골절 단면 정밀 밀착(Snap) 연산
     """
+    VERSION = "v0-2.3.12"
 
     # =========================================================================
     # 알고리즘 상수 설정 (Parameters)
@@ -600,7 +627,7 @@ class FemurFracturePlannerLogic(ScriptedLoadableModuleLogic):
 
         return mirroredNode
 
-    def runIcpRegistration(self, fragmentModelNodes: list, guideModelNode) -> None:
+    def runIcpRegistration(self, fragmentModelNodes: list, guideModelNode, logCallback=None) -> None:
         """
         [가이드 모델 기반 뼈 조각 자동 ICP(Iterative Closest Point) 정합 알고리즘]
         
@@ -685,6 +712,11 @@ class FemurFracturePlannerLogic(ScriptedLoadableModuleLogic):
             icp.StartByMatchingCentroidsOff()  # 임의 중심 정렬 끄기
             icp.Update()
 
+            if logCallback:
+                logCallback(
+                    f"[{fragNode.GetName()}] ICP 정합 완료: 평균 오차 {icp.GetMeanDistance():.4f} mm, 반복 횟수 {icp.GetNumberOfIterations()}회"
+                )
+
             # 계산된 델타 행렬
             icpMatrix = icp.GetMatrix()
 
@@ -718,7 +750,7 @@ class FemurFracturePlannerLogic(ScriptedLoadableModuleLogic):
 
             fragNode.Modified()
 
-    def runFractureSurfaceSnap(self, frag1Node, frag2Node) -> None:
+    def runFractureSurfaceSnap(self, frag1Node, frag2Node, logCallback=None) -> None:
         """
         [두 뼈 조각의 절단면 간 최근접 점 매칭 기반 정밀 맞물림(Fracture Surface Snap) 알고리즘]
         
@@ -755,47 +787,48 @@ class FemurFracturePlannerLogic(ScriptedLoadableModuleLogic):
             tNode2.SetName(f"{frag2Node.GetName()}_Transform")
             frag2Node.SetAndObserveTransformNodeID(tNode2.GetID())
 
-        # 1번 파편의 현재 월드 변환 행렬 구동
-        lMat1 = vtk.vtkMatrix4x4()
-        tNode1.GetMatrixTransformToParent(lMat1)
-        parent1 = tNode1.GetParentTransformNode()
+        # 1번 및 2번 파편의 현재 월드 변환 행렬 구동 (Parent 체인을 관통하는 Slicer 표준 API 적용)
         wMat1 = vtk.vtkMatrix4x4()
-        if parent1:
-            pwMat1 = vtk.vtkMatrix4x4()
-            parent1.GetMatrixTransformToWorld(pwMat1)
-            vtk.vtkMatrix4x4.Multiply4x4(pwMat1, lMat1, wMat1)
-        else:
-            wMat1.DeepCopy(lMat1)
+        tNode1.GetMatrixTransformToWorld(wMat1)
 
-        # 2번 파편의 현재 월드 변환 행렬 구동
-        lMat2 = vtk.vtkMatrix4x4()
-        tNode2.GetMatrixTransformToParent(lMat2)
-        parent2 = tNode2.GetParentTransformNode()
         wMat2 = vtk.vtkMatrix4x4()
-        if parent2:
-            pwMat2 = vtk.vtkMatrix4x4()
-            parent2.GetMatrixTransformToWorld(pwMat2)
-            vtk.vtkMatrix4x4.Multiply4x4(pwMat2, lMat2, wMat2)
-        else:
-            wMat2.DeepCopy(lMat2)
+        tNode2.GetMatrixTransformToWorld(wMat2)
+
+        if logCallback:
+            logCallback(f"wMat1 translation: [{wMat1.GetElement(0,3):.2f}, {wMat1.GetElement(1,3):.2f}, {wMat1.GetElement(2,3):.2f}]")
+            logCallback(f"wMat2 translation: [{wMat2.GetElement(0,3):.2f}, {wMat2.GetElement(1,3):.2f}, {wMat2.GetElement(2,3):.2f}]")
 
         poly1 = frag1Node.GetPolyData()
         poly2 = frag2Node.GetPolyData()
 
-        # 1번 파편 메쉬를 월드 좌표 공간으로 강제 변환
+        # [추가] 고립 정점(Isolated Points) 제거 전처리
+        # Connectivity Filter는 삼각형 면(Cells)만 분리하고 겉보기에는 보이지 않는 
+        # 고립 꼭짓점들을 배열에 남겨두기 때문에, Bounds 및 Center가 전체 뼈 크기로 오인되는 버그가 발생합니다.
+        # vtkCleanPolyData를 통해 쓰레기 정점들을 완벽히 정리합니다.
+        cleanFilter1 = vtk.vtkCleanPolyData()
+        cleanFilter1.SetInputData(poly1)
+        cleanFilter1.Update()
+        poly1Cleaned = cleanFilter1.GetOutput()
+
+        cleanFilter2 = vtk.vtkCleanPolyData()
+        cleanFilter2.SetInputData(poly2)
+        cleanFilter2.Update()
+        poly2Cleaned = cleanFilter2.GetOutput()
+
+        # 1번 파편 메쉬를 월드 좌표 공간으로 강제 변환 (Cleaned 데이터 사용)
         tf1 = vtk.vtkTransform()
         tf1.SetMatrix(wMat1)
         tfFilter1 = vtk.vtkTransformPolyDataFilter()
-        tfFilter1.SetInputData(poly1)
+        tfFilter1.SetInputData(poly1Cleaned)
         tfFilter1.SetTransform(tf1)
         tfFilter1.Update()
         poly1World = tfFilter1.GetOutput()
 
-        # 2번 파편 메쉬를 월드 좌표 공간으로 강제 변환
+        # 2번 파편 메쉬를 월드 좌표 공간으로 강제 변환 (Cleaned 데이터 사용)
         tf2 = vtk.vtkTransform()
         tf2.SetMatrix(wMat2)
         tfFilter2 = vtk.vtkTransformPolyDataFilter()
-        tfFilter2.SetInputData(poly2)
+        tfFilter2.SetInputData(poly2Cleaned)
         tfFilter2.SetTransform(tf2)
         tfFilter2.Update()
         poly2World = tfFilter2.GetOutput()
@@ -807,36 +840,196 @@ class FemurFracturePlannerLogic(ScriptedLoadableModuleLogic):
         locator.SetDataSet(poly2World)
         locator.BuildLocator()
 
+        # 1번 파편 포인트 다운샘플링 (성능 개선을 위한 1/10 마스킹 필터 구축)
+        # 모든 포인트 전수 조사 대신 일정한 오프셋 간격으로 샘플링하여 파이썬 루프 연산 병목을 제거한다.
+        maskFilter = vtk.vtkMaskPoints()
+        maskFilter.SetInputData(poly1World)
+        maskFilter.SetOnRatio(10)  # 10개 중 1개 포인트 추출 (약 10배 가속)
+        maskFilter.GenerateVerticesOn()
+        maskFilter.SingleVertexPerCellOn()
+        maskFilter.Update()
+        poly1Sampled = maskFilter.GetOutput()
+
+        # 두 파편 메쉬에 대해 포인트 기준 법선 벡터(Point Normals) 연산
+        # 골절면 스냅 시 뼈 외벽(Cortex)끼리 오정합되는 현상을 막고, 
+        # 실제로 마주 보고 맞물리는 골절 단면(Fracture Surface)만 선별하기 위한 수학적 기틀이다.
+        normalsFilter1 = vtk.vtkPolyDataNormals()
+        normalsFilter1.SetInputData(poly1Sampled)
+        normalsFilter1.ComputePointNormalsOn()
+        normalsFilter1.ComputeCellNormalsOff()
+        normalsFilter1.SplittingOff()
+        normalsFilter1.Update()
+        poly1Normals = normalsFilter1.GetOutput().GetPointData().GetNormals()
+
+        normalsFilter2 = vtk.vtkPolyDataNormals()
+        normalsFilter2.SetInputData(poly2World)
+        normalsFilter2.ComputePointNormalsOn()
+        normalsFilter2.ComputeCellNormalsOff()
+        normalsFilter2.SplittingOff()
+        normalsFilter2.Update()
+        poly2Normals = normalsFilter2.GetOutput().GetPointData().GetNormals()
+
+        # 두 골편의 Z축 바운딩 박스(Bounds) 획득
+        bounds1 = poly1World.GetBounds()
+        z1_min, z1_max = bounds1[4], bounds1[5]
+
+        bounds2 = poly2World.GetBounds()
+        z2_min, z2_max = bounds2[4], bounds2[5]
+
+        # 두 골편의 무게중심을 구하여 상하 배치 관계 판별
+        center1 = [0.0, 0.0, 0.0]
+        poly1World.GetCenter(center1)
+
+        center2 = [0.0, 0.0, 0.0]
+        poly2World.GetCenter(center2)
+
+        isFrag1Below = center1[2] < center2[2]
+
+        if logCallback:
+            logCallback(f"poly1World center: [{center1[0]:.2f}, {center1[1]:.2f}, {center1[2]:.2f}], bounds Z: [{z1_min:.2f}, {z1_max:.2f}]")
+            logCallback(f"poly2World center: [{center2[0]:.2f}, {center2[1]:.2f}, {center2[2]:.2f}], bounds Z: [{z2_min:.2f}, {z2_max:.2f}]")
+            logCallback(f"isFrag1Below: {isFrag1Below}")
+
+        # 골절 단면 영역을 정의할 끝단 마진 두께 (20.0mm)
+        # 뼈가 비스듬하게 사선으로 누워 있더라도, 실질적으로 잘린 단면 부위는
+        # 서로 마주보는 상/하단 끝 경계 20mm 부근에 집중되어 있습니다.
+        MARGIN = 20.0
+
+        if isFrag1Below:
+            z1_threshold = z1_max - MARGIN
+            z2_threshold = z2_min + MARGIN
+        else:
+            z1_threshold = z1_min + MARGIN
+            z2_threshold = z2_max - MARGIN
+
         # 최근접 거리 임계값에 포함되는 대응 랜드마크 점 저장소
         sourcePoints = vtk.vtkPoints()
         targetPoints = vtk.vtkPoints()
 
         import math
-        numPoints1 = poly1World.GetNumberOfPoints()
+        numPoints1 = poly1Sampled.GetNumberOfPoints()
 
-        # 1번 파편의 모든 포인트에 대응되는 2번 파편 점과의 거리 조사
+        # 법선 내적(Dot Product) 임계값: -0.3 이하
+        # -1.0에 가까울수록 두 표면의 법선 벡터가 정반대로 향하고 있음(서로 마주침)을 의미한다.
+        # 일반적인 골절면 접합 및 골편 정합 시, 약 -0.3 이하일 때 유효한 맞물림 영역으로 판별한다.
+        NORMAL_DOT_LIMIT = -0.3
+
+        # [신규] 단면 영역 무게중심 계산을 통한 초기 수평/수직 오프셋 보정 (X-Y 정렬 쏠림 및 오정합 극복)
+        FRACTURE_AXIS_LIMIT = 0.25
+        
+        sumPt1 = [0.0, 0.0, 0.0]
+        cnt1 = 0
         for i in range(numPoints1):
-            pt1 = poly1World.GetPoint(i)
-            closestPointId = locator.FindClosestPoint(pt1)
+            pt = poly1Sampled.GetPoint(i)
+            if isFrag1Below:
+                if pt[2] < z1_threshold:
+                    continue
+            else:
+                if pt[2] > z1_threshold:
+                    continue
+            
+            n = poly1Normals.GetTuple(i)
+            if abs(n[2]) >= FRACTURE_AXIS_LIMIT:
+                sumPt1[0] += pt[0]
+                sumPt1[1] += pt[1]
+                sumPt1[2] += pt[2]
+                cnt1 += 1
+
+        sumPt2 = [0.0, 0.0, 0.0]
+        cnt2 = 0
+        numPoints2_all = poly2World.GetNumberOfPoints()
+        for i in range(numPoints2_all):
+            pt = poly2World.GetPoint(i)
+            if isFrag1Below:
+                if pt[2] > z2_threshold:
+                    continue
+            else:
+                if pt[2] < z2_threshold:
+                    continue
+            
+            n = poly2Normals.GetTuple(i)
+            if abs(n[2]) >= FRACTURE_AXIS_LIMIT:
+                sumPt2[0] += pt[0]
+                sumPt2[1] += pt[1]
+                sumPt2[2] += pt[2]
+                cnt2 += 1
+
+        preTranslation = [0.0, 0.0, 0.0]
+        if cnt1 > 0 and cnt2 > 0:
+            c1 = [sumPt1[0]/cnt1, sumPt1[1]/cnt1, sumPt1[2]/cnt1]
+            c2 = [sumPt2[0]/cnt2, sumPt2[1]/cnt2, sumPt2[2]/cnt2]
+            preTranslation = [c2[0] - c1[0], c2[1] - c1[1], c2[2] - c1[2]]
+            if logCallback:
+                logCallback(f"┌─ 1번 골편 단면 무게중심 (점 개수: {cnt1}개): [{c1[0]:.2f}, {c1[1]:.2f}, {c1[2]:.2f}]")
+                logCallback(f"├─ 2번 골편 단면 무게중심 (점 개수: {cnt2}개): [{c2[0]:.2f}, {c2[1]:.2f}, {c2[2]:.2f}]")
+                logCallback(f"└─ 단면 간 초기 수평/수직 보정 오프셋: [{preTranslation[0]:.2f}, {preTranslation[1]:.2f}, {preTranslation[2]:.2f}]")
+
+        # 샘플링된 1번 파편 포인트들에 대응되는 2번 파편 점과의 거리 및 법선 비교 조사
+        for i in range(numPoints1):
+            pt1 = poly1Sampled.GetPoint(i)
+
+            # A. 1번 골편 정점이 마주보는 끝단 마진 영역에 속하는지 공간 좌표 필터링
+            if isFrag1Below:
+                if pt1[2] < z1_threshold:
+                    continue
+            else:
+                if pt1[2] > z1_threshold:
+                    continue
+
+            # 초기 단면 간 오프셋을 보정한 임시 좌표로 KD-Tree 탐색하여 1:1 수평/수직 대칭점 검출
+            pt1_temp = [
+                pt1[0] + preTranslation[0],
+                pt1[1] + preTranslation[1],
+                pt1[2] + preTranslation[2]
+            ]
+
+            closestPointId = locator.FindClosestPoint(pt1_temp)
             if closestPointId < 0:
                 continue
             pt2 = poly2World.GetPoint(closestPointId)
 
+            # B. 2번 골편 대응 정점이 마주보는 끝단 마진 영역에 속하는지 공간 좌표 필터링
+            if isFrag1Below:
+                if pt2[2] > z2_threshold:
+                    continue
+            else:
+                if pt2[2] < z2_threshold:
+                    continue
+
+            # C. 유클리드 거리 계산 (초기 무게중심 오프셋이 상쇄된 가상 단면 간 거리 평가)
             dist = math.sqrt(
-                (pt1[0] - pt2[0]) ** 2
-                + (pt1[1] - pt2[1]) ** 2
-                + (pt1[2] - pt2[2]) ** 2
+                (pt1_temp[0] - pt2[0]) ** 2
+                + (pt1_temp[1] - pt2[1]) ** 2
+                + (pt1_temp[2] - pt2[2]) ** 2
             )
 
-            # 임계 거리 이내의 점들만 골절면 결합 대상 랜드마크로 등록
+            # D. 임계 거리 이내이며 두 골편이 서로 마주보는 골절면 방향일 때만 등록
+            # 오프셋 보정으로 매칭 정확도가 상승했으므로, 수집 기준 거리를 가상 거리 dist 기준으로 검사
             if dist <= self.SNAP_DISTANCE_LIMIT:
-                sourcePoints.InsertNextPoint(pt1)
-                targetPoints.InsertNextPoint(pt2)
+                n1 = poly1Normals.GetTuple(i)
+                n2 = poly2Normals.GetTuple(closestPointId)
+                
+                # 마진 필터로 대다수 노이즈가 제거되므로 축 임계값은 0.25로 완화하여 적용
+                isFractureSurface1 = abs(n1[2]) >= FRACTURE_AXIS_LIMIT
+                isFractureSurface2 = abs(n2[2]) >= FRACTURE_AXIS_LIMIT
+
+                if isFractureSurface1 and isFractureSurface2:
+                    # 두 법선 벡터 내적 (Dot Product)
+                    dotProduct = n1[0]*n2[0] + n1[1]*n2[1] + n1[2]*n2[2]
+
+                    if dotProduct <= NORMAL_DOT_LIMIT:
+                        sourcePoints.InsertNextPoint(pt1)
+                        targetPoints.InsertNextPoint(pt2)
 
         # 랜드마크 매칭을 수행하기 위해서는 기하학적 최소 자유도가 충족되어야 함
         if sourcePoints.GetNumberOfPoints() < self.SNAP_MIN_POINTS:
             raise RuntimeError(
                 f"가까운 골절면 점이 충분하지 않습니다. Move 기능으로 두 골편의 골절면을 {self.SNAP_DISTANCE_LIMIT}mm 이내로 더 가깝게 배치한 뒤 다시 실행하세요."
+            )
+
+        if logCallback:
+            logCallback(
+                f"골절면 스냅 후보 수집 완료: 총 {sourcePoints.GetNumberOfPoints()}개 정점 쌍 매칭 (임계 거리: {self.SNAP_DISTANCE_LIMIT}mm)"
             )
 
         # 수집된 대량 점쌍 집합을 vtkPolyData 3D 객체 구조로 래핑
@@ -847,26 +1040,56 @@ class FemurFracturePlannerLogic(ScriptedLoadableModuleLogic):
         targetPoly = vtk.vtkPolyData()
         targetPoly.SetPoints(targetPoints)
 
-        # 반복적 최근접점(ICP) 정복 알고리즘 구동
-        # 단 1회 계산이 아닌 수백 번의 점 매칭 반복(Iteration)을 통해 골절 단면의 오목/볼록 굴곡을 정밀하게 맞춘다.
-        icpTransform = vtk.vtkIterativeClosestPointTransform()
-        icpTransform.SetSource(sourcePoly)
-        icpTransform.SetTarget(targetPoly)
-        icpTransform.GetLandmarkTransform().SetModeToRigidBody()  # 오직 회전 및 평행이동만 수행
-        icpTransform.SetMaximumNumberOfIterations(50)  # 과도한 슬라이딩 방지를 위해 최대 반복 횟수 축소
-        icpTransform.CheckMeanDistanceOn()  # 일정 수치 이하로 붙으면 조기 종료 활성화
-        icpTransform.SetMaximumMeanDistance(0.5)  # 평균 오차가 0.5mm에 도달하면 즉시 연산 멈춤
-        icpTransform.StartByMatchingCentroidsOn()  # 무게중심부터 맞춰서 로컬 미니멈(최적화 함정) 회피 및 수렴 가속
-        icpTransform.Update()
+        # 1:1로 수립된 고정밀 골절면 대응점 간 최소제곱법 기반 강체 Landmark 변환 구동
+        # 법선/축 필터링으로 옆구리 노이즈(Cortex)가 제거된 상태이므로,
+        # ICP에서 조기 수렴 종료되던 문제를 봉쇄하고 vtkLandmarkTransform을 통해 완벽한 정복 정합을 수행한다.
+        landmarkTransform = vtk.vtkLandmarkTransform()
+        landmarkTransform.SetSourceLandmarks(sourcePoints)
+        landmarkTransform.SetTargetLandmarks(targetPoints)
+        landmarkTransform.SetModeToRigidBody()  # 회전 및 평행이동만 허용
+        landmarkTransform.Update()
 
-        snapMatrix = icpTransform.GetMatrix()
+        # 변환 후 실제 오차 계산 (로그 보고용)
+        totalDist = 0.0
+        numPts = sourcePoints.GetNumberOfPoints()
+        for i in range(numPts):
+            p1 = sourcePoints.GetPoint(i)
+            p2 = targetPoints.GetPoint(i)
+            p1Transformed = landmarkTransform.TransformPoint(p1)
+            dist = math.sqrt(
+                (p1Transformed[0] - p2[0]) ** 2
+                + (p1Transformed[1] - p2[1]) ** 2
+                + (p1Transformed[2] - p2[2]) ** 2
+            )
+            totalDist += dist
+        meanDistance = totalDist / numPts if numPts > 0 else 0.0
+
+        snapMatrix = landmarkTransform.GetMatrix()
+
+        if logCallback:
+            logCallback(
+                f"골절면 스냅 정합 완료: Landmark 강체 변환 최종 오차 {meanDistance:.4f} mm"
+            )
+            logCallback(
+                f"└─ Snap Matrix Translation: [{snapMatrix.GetElement(0,3):.2f}, {snapMatrix.GetElement(1,3):.2f}, {snapMatrix.GetElement(2,3):.2f}]"
+            )
+            if numPts > 0:
+                logCallback("└─ Matching Points Samples (first 3):")
+                for k in range(min(3, numPts)):
+                    p_src = sourcePoints.GetPoint(k)
+                    p_tgt = targetPoints.GetPoint(k)
+                    logCallback(f"   [{k}] Src: [{p_src[0]:.2f}, {p_src[1]:.2f}, {p_src[2]:.2f}] -> Tgt: [{p_tgt[0]:.2f}, {p_tgt[1]:.2f}, {p_tgt[2]:.2f}]")
 
         # 새로운 1번 파편 월드 행렬 도출 (W1_new = Snap_Matrix * W1)
         newWorldMatrix1 = vtk.vtkMatrix4x4()
         vtk.vtkMatrix4x4.Multiply4x4(snapMatrix, wMat1, newWorldMatrix1)
 
         # 상위 계층 회전 변환이 있는 경우 로컬 좌표 행렬로 전환 처리
+        parent1 = tNode1.GetParentTransformNode()
         if parent1:
+            pwMat1 = vtk.vtkMatrix4x4()
+            parent1.GetMatrixTransformToWorld(pwMat1)
+            
             pwMatInverse1 = vtk.vtkMatrix4x4()
             vtk.vtkMatrix4x4.Invert(pwMat1, pwMatInverse1)
             newLocalMatrix1 = vtk.vtkMatrix4x4()
@@ -952,17 +1175,61 @@ class FemurFracturePlannerLogic(ScriptedLoadableModuleLogic):
         
         segmentation.CreateRepresentation("Closed surface")
         
-        sourcePolyData = segmentation.GetSegmentRepresentation(sourceSegId, "Closed surface")
-        targetPolyData = segmentation.GetSegmentRepresentation(targetSegId, "Closed surface")
+        sourceMaskPolyData = segmentation.GetSegmentRepresentation(sourceSegId, "Closed surface")
+        targetMaskPolyData = segmentation.GetSegmentRepresentation(targetSegId, "Closed surface")
         
-        if not sourcePolyData or not targetPolyData:
+        if not sourceMaskPolyData or not targetMaskPolyData:
             raise RuntimeError("색칠 영역 표면 데이터를 추출할 수 없습니다. 색칠을 했는지 확인하세요.")
             
-        sourcePoly = vtk.vtkPolyData.SafeDownCast(sourcePolyData)
-        targetPoly = vtk.vtkPolyData.SafeDownCast(targetPolyData)
+        sourceMaskPoly = vtk.vtkPolyData.SafeDownCast(sourceMaskPolyData)
+        targetMaskPoly = vtk.vtkPolyData.SafeDownCast(targetMaskPolyData)
+        
+        # 1. 월드 좌표계 변환 헬퍼
+        def get_world_polydata(node, base_poly=None):
+            poly = base_poly if base_poly else node.GetPolyData()
+            tNode = node.GetParentTransformNode()
+            if tNode:
+                mat = vtk.vtkMatrix4x4()
+                tNode.GetMatrixTransformToWorld(mat)
+                trans = vtk.vtkTransform()
+                trans.SetMatrix(mat)
+                tf = vtk.vtkTransformPolyDataFilter()
+                tf.SetInputData(poly)
+                tf.SetTransform(trans)
+                tf.Update()
+                return tf.GetOutput()
+            else:
+                clone = vtk.vtkPolyData()
+                clone.DeepCopy(poly)
+                return clone
+                
+        # 2. 마스크 영역을 이용해 뼈의 얇은 겉표면만 필터링하는 헬퍼
+        def get_enclosed_surface(bone_node, mask_world_poly):
+            bone_world_poly = get_world_polydata(bone_node)
+            
+            enclosedFilter = vtk.vtkSelectEnclosedPoints()
+            enclosedFilter.SetInputData(bone_world_poly)
+            enclosedFilter.SetSurfaceData(mask_world_poly)
+            enclosedFilter.SetTolerance(0.001)
+            enclosedFilter.Update()
+            
+            threshold = vtk.vtkThresholdPoints()
+            threshold.SetInputConnection(enclosedFilter.GetOutputPort())
+            threshold.SetInputArrayToProcess(0, 0, 0, vtk.vtkDataObject.FIELD_ASSOCIATION_POINTS, "SelectedPoints")
+            threshold.ThresholdByUpper(1.0) # 마스크 덩어리 내부에 포함된 뼈의 점만 남김
+            threshold.Update()
+            
+            return threshold.GetOutput()
+            
+        sourceMaskWorld = get_world_polydata(segNode, sourceMaskPoly)
+        targetMaskWorld = get_world_polydata(segNode, targetMaskPoly)
+        
+        # 3. 뼈 안쪽 물감 덩어리는 무시되고, 진짜 얇은 뼈 단면 껍질만 추출됨!
+        sourcePoly = get_enclosed_surface(sourceNode, sourceMaskWorld)
+        targetPoly = get_enclosed_surface(targetNode, targetMaskWorld)
         
         if not sourcePoly or not targetPoly or sourcePoly.GetNumberOfPoints() == 0 or targetPoly.GetNumberOfPoints() == 0:
-            raise RuntimeError("색칠된 영역(Targeting_Source_ROI, Targeting_Target_ROI)에 유효한 데이터가 없습니다. 브러시로 칠했는지 확인하세요.")
+            raise RuntimeError("마스킹 영역과 뼈 표면이 교차하는 지점이 없습니다. 뼈 바깥이나 허공에 칠한 것은 아닌지 확인하세요.")
             
         icpTransform = vtk.vtkIterativeClosestPointTransform()
         icpTransform.SetSource(sourcePoly)
