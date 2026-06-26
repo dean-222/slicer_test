@@ -1,10 +1,16 @@
 """
 File Name: FemurFracturePlannerLogic.py
-Version: v0-2.1.0
-Date: 2026-06-24
+Version: v0-2.2.2
+Date: 2026-06-25
 Description: 대퇴골 골절 계획 모듈의 Volume Rendering, 골편 분리, 모델 정합 계산 로직을 담당한다.
 
 Version History:
+- v0-2.2.2 (2026-06-25)
+  - 골편 분리 생성 시 컬러 테이블 노드 의존성을 제거하고, 확정적인 고대비(High-contrast) 색상 리스트를 적용하여 골편 간 시각적 구분을 명확히 개선 (Z 증가)
+- v0-2.2.1 (2026-06-25)
+  - 8단계 골절면 스냅 ICP 연산이 너무 길어지며 뼈가 미끄러지듯 과도하게 겹치는 과적합 현상을 방지하기 위해, 최대 반복 횟수를 50회로 줄이고 평균 오차가 0.5mm 이내로 들어오면 연산을 조기 종료하도록 파라미터 조율 (Z 증가)
+- v0-2.2.0 (2026-06-25)
+  - 8단계 골절면 스냅(Fracture Surface Snap) 기능에 vtkLandmarkTransform 단일 변환 대신 vtkIterativeClosestPointTransform(ICP) 반복 정복 알고리즘을 이식하여 골절면 굴곡을 정밀하게 맞물리도록 개선 (Y 증가, Z 0 초기화)
 - v0-2.1.0 (2026-06-24)
   - 알고리즘에 산재되어 있던 하드코딩 상수들(마스킹 공기값, 렌더링 오프셋, 골편 최소 꼭짓점 수, ICP 반복 수, Snap 기준값 등)을 클래스 최상단 상수로 분리 (Y 증가, Z 0 초기화)
 - v0-2.0.0 (2026-06-24)
@@ -520,18 +526,22 @@ class FemurFracturePlannerLogic(ScriptedLoadableModuleLogic):
                 if transformNode:
                     fragModel.SetAndObserveTransformNodeID(transformNode.GetID())
 
-                # 무지개 컬러 테이블을 이용해 서로 겹치지 않는 무작위 색상 배정
-                colorNode = slicer.mrmlScene.GetNodeByID("vtkMRMLColorTableNodeRainbow")
-                if colorNode:
-                    color = [0.0, 0.0, 0.0, 1.0]
-                    colorIndex = (idx * 5) % 20
-                    colorNode.GetColor(colorIndex, color)
+                # 서로 뚜렷하게 구분되는 고대비 색상 (R, G, B) 사전 정의
+                distinctColors = [
+                    (0.3, 0.9, 0.5),  # 연녹색 (Fragment 1)
+                    (0.9, 0.6, 0.2),  # 주황색 (Fragment 2)
+                    (0.4, 0.6, 0.9),  # 파란색 (Fragment 3)
+                    (0.9, 0.4, 0.7),  # 핑크색
+                    (0.8, 0.8, 0.2)   # 노란색
+                ]
+                color = distinctColors[idx % len(distinctColors)]
+
+                displayNode = fragModel.GetDisplayNode()
+                if not displayNode:
+                    fragModel.CreateDefaultDisplayNodes()
                     displayNode = fragModel.GetDisplayNode()
-                    if not displayNode:
-                        fragModel.CreateDefaultDisplayNodes()
-                        displayNode = fragModel.GetDisplayNode()
-                    if displayNode:
-                        displayNode.SetColor(color[0], color[1], color[2])
+                if displayNode:
+                    displayNode.SetColor(color[0], color[1], color[2])
 
                 separatedCount += 1
 
@@ -829,16 +839,27 @@ class FemurFracturePlannerLogic(ScriptedLoadableModuleLogic):
                 f"가까운 골절면 점이 충분하지 않습니다. Move 기능으로 두 골편의 골절면을 {self.SNAP_DISTANCE_LIMIT}mm 이내로 더 가깝게 배치한 뒤 다시 실행하세요."
             )
 
-        # 수집된 대량 점쌍 집합에 대해 최적 강체 매칭 행렬 구동
-        # LandmarkTransform은 짝지어진 점들의 평균 오차가 가장 작아지도록
-        # 회전과 이동 행렬을 한 번에 계산한다.
-        landmarkTransform = vtk.vtkLandmarkTransform()
-        landmarkTransform.SetSourceLandmarks(sourcePoints)
-        landmarkTransform.SetTargetLandmarks(targetPoints)
-        landmarkTransform.SetModeToRigidBody()  # 오직 회전 및 평행이동만 수행
-        landmarkTransform.Update()
+        # 수집된 대량 점쌍 집합을 vtkPolyData 3D 객체 구조로 래핑
+        # vtkIterativeClosestPointTransform(ICP)는 점 구름 기반 반복 수렴을 위해 PolyData 입력을 요구한다.
+        sourcePoly = vtk.vtkPolyData()
+        sourcePoly.SetPoints(sourcePoints)
 
-        snapMatrix = landmarkTransform.GetMatrix()
+        targetPoly = vtk.vtkPolyData()
+        targetPoly.SetPoints(targetPoints)
+
+        # 반복적 최근접점(ICP) 정복 알고리즘 구동
+        # 단 1회 계산이 아닌 수백 번의 점 매칭 반복(Iteration)을 통해 골절 단면의 오목/볼록 굴곡을 정밀하게 맞춘다.
+        icpTransform = vtk.vtkIterativeClosestPointTransform()
+        icpTransform.SetSource(sourcePoly)
+        icpTransform.SetTarget(targetPoly)
+        icpTransform.GetLandmarkTransform().SetModeToRigidBody()  # 오직 회전 및 평행이동만 수행
+        icpTransform.SetMaximumNumberOfIterations(50)  # 과도한 슬라이딩 방지를 위해 최대 반복 횟수 축소
+        icpTransform.CheckMeanDistanceOn()  # 일정 수치 이하로 붙으면 조기 종료 활성화
+        icpTransform.SetMaximumMeanDistance(0.5)  # 평균 오차가 0.5mm에 도달하면 즉시 연산 멈춤
+        icpTransform.StartByMatchingCentroidsOn()  # 무게중심부터 맞춰서 로컬 미니멈(최적화 함정) 회피 및 수렴 가속
+        icpTransform.Update()
+
+        snapMatrix = icpTransform.GetMatrix()
 
         # 새로운 1번 파편 월드 행렬 도출 (W1_new = Snap_Matrix * W1)
         newWorldMatrix1 = vtk.vtkMatrix4x4()
@@ -856,3 +877,133 @@ class FemurFracturePlannerLogic(ScriptedLoadableModuleLogic):
         # 1번 파편의 변환 노드 갱신
         tNode1.SetMatrixTransformToParent(newLocalMatrix1)
         frag1Node.Modified()
+
+    def runLandmarkRegistration(self, sourceNode, targetNode, sourceMarkersNode, targetMarkersNode) -> None:
+        """
+        [수동 타겟팅: 마커 기반 정밀 매칭 (점 찍기)]
+        사용자가 지정한 Fiducial 포인트들을 바탕으로 vtkLandmarkTransform을 기동하여 골편을 변환한다.
+        """
+        if not sourceNode or not targetNode or not sourceMarkersNode or not targetMarkersNode:
+            raise RuntimeError("마커 기반 매칭에 필요한 노드가 부족합니다.")
+
+        numPoints = min(sourceMarkersNode.GetNumberOfControlPoints(), targetMarkersNode.GetNumberOfControlPoints())
+        
+        sourcePoints = vtk.vtkPoints()
+        targetPoints = vtk.vtkPoints()
+        
+        for i in range(numPoints):
+            p1 = [0.0, 0.0, 0.0]
+            p2 = [0.0, 0.0, 0.0]
+            sourceMarkersNode.GetNthControlPointPositionWorld(i, p1)
+            targetMarkersNode.GetNthControlPointPositionWorld(i, p2)
+            sourcePoints.InsertNextPoint(p1)
+            targetPoints.InsertNextPoint(p2)
+            
+        landmarkTransform = vtk.vtkLandmarkTransform()
+        landmarkTransform.SetSourceLandmarks(sourcePoints)
+        landmarkTransform.SetTargetLandmarks(targetPoints)
+        landmarkTransform.SetModeToRigidBody()
+        landmarkTransform.Update()
+        
+        snapMatrix = landmarkTransform.GetMatrix()
+        
+        tNodeSource = sourceNode.GetParentTransformNode()
+        if not tNodeSource:
+            tNodeSource = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLinearTransformNode")
+            tNodeSource.SetName(f"{sourceNode.GetName()}_Transform")
+            sourceNode.SetAndObserveTransformNodeID(tNodeSource.GetID())
+            
+        lMatSource = vtk.vtkMatrix4x4()
+        tNodeSource.GetMatrixTransformToParent(lMatSource)
+        parentSource = tNodeSource.GetParentTransformNode()
+        wMatSource = vtk.vtkMatrix4x4()
+        
+        if parentSource:
+            pwMatSource = vtk.vtkMatrix4x4()
+            parentSource.GetMatrixTransformToWorld(pwMatSource)
+            vtk.vtkMatrix4x4.Multiply4x4(pwMatSource, lMatSource, wMatSource)
+        else:
+            wMatSource.DeepCopy(lMatSource)
+            
+        newWorldMatrixSource = vtk.vtkMatrix4x4()
+        vtk.vtkMatrix4x4.Multiply4x4(snapMatrix, wMatSource, newWorldMatrixSource)
+        
+        if parentSource:
+            pwMatInverseSource = vtk.vtkMatrix4x4()
+            vtk.vtkMatrix4x4.Invert(pwMatSource, pwMatInverseSource)
+            newLocalMatrixSource = vtk.vtkMatrix4x4()
+            vtk.vtkMatrix4x4.Multiply4x4(pwMatInverseSource, newWorldMatrixSource, newLocalMatrixSource)
+        else:
+            newLocalMatrixSource = newWorldMatrixSource
+            
+        tNodeSource.SetMatrixTransformToParent(newLocalMatrixSource)
+        sourceNode.Modified()
+
+    def runMaskedIcpRegistration(self, sourceNode, targetNode, segNode, sourceSegId, targetSegId) -> None:
+        """
+        [수동 타겟팅: 색칠 영역 기반 매칭 (마스킹)]
+        사용자가 칠한 세그멘테이션 마스크 영역을 추출하여, 두 추출된 폴리데이터(Point Cloud)끼리 ICP 정렬을 수행한다.
+        """
+        if not sourceNode or not targetNode or not segNode:
+            raise RuntimeError("색칠 영역 기반 매칭에 필요한 노드가 부족합니다.")
+            
+        # 세그멘테이션 데이터에서 지정된 Segment를 PolyData로 추출
+        segmentation = segNode.GetSegmentation()
+        
+        segmentation.CreateRepresentation("Closed surface")
+        
+        sourcePolyData = segmentation.GetSegmentRepresentation(sourceSegId, "Closed surface")
+        targetPolyData = segmentation.GetSegmentRepresentation(targetSegId, "Closed surface")
+        
+        if not sourcePolyData or not targetPolyData:
+            raise RuntimeError("색칠 영역 표면 데이터를 추출할 수 없습니다. 색칠을 했는지 확인하세요.")
+            
+        sourcePoly = vtk.vtkPolyData.SafeDownCast(sourcePolyData)
+        targetPoly = vtk.vtkPolyData.SafeDownCast(targetPolyData)
+        
+        if not sourcePoly or not targetPoly or sourcePoly.GetNumberOfPoints() == 0 or targetPoly.GetNumberOfPoints() == 0:
+            raise RuntimeError("색칠된 영역(Targeting_Source_ROI, Targeting_Target_ROI)에 유효한 데이터가 없습니다. 브러시로 칠했는지 확인하세요.")
+            
+        icpTransform = vtk.vtkIterativeClosestPointTransform()
+        icpTransform.SetSource(sourcePoly)
+        icpTransform.SetTarget(targetPoly)
+        icpTransform.GetLandmarkTransform().SetModeToRigidBody()
+        icpTransform.SetMaximumNumberOfIterations(100)
+        icpTransform.CheckMeanDistanceOn()
+        icpTransform.SetMaximumMeanDistance(0.5)
+        icpTransform.StartByMatchingCentroidsOn()
+        icpTransform.Update()
+        
+        snapMatrix = icpTransform.GetMatrix()
+        
+        tNodeSource = sourceNode.GetParentTransformNode()
+        if not tNodeSource:
+            tNodeSource = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLinearTransformNode")
+            tNodeSource.SetName(f"{sourceNode.GetName()}_Transform")
+            sourceNode.SetAndObserveTransformNodeID(tNodeSource.GetID())
+            
+        lMatSource = vtk.vtkMatrix4x4()
+        tNodeSource.GetMatrixTransformToParent(lMatSource)
+        parentSource = tNodeSource.GetParentTransformNode()
+        wMatSource = vtk.vtkMatrix4x4()
+        
+        if parentSource:
+            pwMatSource = vtk.vtkMatrix4x4()
+            parentSource.GetMatrixTransformToWorld(pwMatSource)
+            vtk.vtkMatrix4x4.Multiply4x4(pwMatSource, lMatSource, wMatSource)
+        else:
+            wMatSource.DeepCopy(lMatSource)
+            
+        newWorldMatrixSource = vtk.vtkMatrix4x4()
+        vtk.vtkMatrix4x4.Multiply4x4(snapMatrix, wMatSource, newWorldMatrixSource)
+        
+        if parentSource:
+            pwMatInverseSource = vtk.vtkMatrix4x4()
+            vtk.vtkMatrix4x4.Invert(pwMatSource, pwMatInverseSource)
+            newLocalMatrixSource = vtk.vtkMatrix4x4()
+            vtk.vtkMatrix4x4.Multiply4x4(pwMatInverseSource, newWorldMatrixSource, newLocalMatrixSource)
+        else:
+            newLocalMatrixSource = newWorldMatrixSource
+            
+        tNodeSource.SetMatrixTransformToParent(newLocalMatrixSource)
+        sourceNode.Modified()

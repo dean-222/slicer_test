@@ -1,10 +1,14 @@
 """
 File Name: FemurFracturePlannerFragmentManager.py
-Version: v0-0.1.1
-Date: 2026-06-24
+Version: v0-0.1.3
+Date: 2026-06-25
 Description: 대퇴골 골절 계획 모듈의 Fragment Manager UI, 골편 표시 제어, 선택 추적 로직을 담당한다.
 
 Version History:
+- v0-0.1.3 (2026-06-25)
+  - 골편 생성 시 골편 관리자 표의 색상이 실제 3D 뷰어의 색상과 불일치하는 버그 수정, 그리고 미러링 가이드 삭제 시 원본 가이드 골편까지 함께 씬에서 제거하도록 연동 추가 (Z 증가)
+- v0-0.1.2 (2026-06-25)
+  - 전체 삭제 시 guideModelSelector에 로드된 원래 가이드 모델 및 부모 변환 노드도 함께 씬에서 제거하고 선택을 해제하도록 수정 (Z 증가)
 - v0-0.1.1 (2026-06-24)
   - 골편 및 가이드 모델 삭제 시, 모델에 할당된 3D 수동 조작용 변환 노드(vtkMRMLLinearTransformNode)가 삭제되지 않고 씬에 남아 3D Gizmo 잔상이 생기던 버그 수정 (Z 증가)
 - v0-0.1.0 (2026-06-24)
@@ -124,10 +128,10 @@ class FemurFracturePlannerFragmentManagerMixin:
             colorButton = qt.QPushButton()
             colorButton.setFixedWidth(40)
             colorButton.setFixedHeight(20)
-            if transformDisplayNode:
-                rgb = transformDisplayNode.GetColor()
-            elif displayNode:
+            if displayNode:
                 rgb = displayNode.GetColor()
+            elif transformDisplayNode:
+                rgb = transformDisplayNode.GetColor()
             else:
                 rgb = None
 
@@ -265,13 +269,34 @@ class FemurFracturePlannerFragmentManagerMixin:
         nodesToDelete = []
         transformsToDelete = []
 
-        # 1. 대상 모델 노드 수집 및 연관 변환 노드 추적
+        # 1. guideModelSelector에 현재 선택된 가이드 모델도 명시적으로 수집 대상에 포함
+        guideNode = self.ui.guideModelSelector.currentNode()
+        if guideNode:
+            nodesToDelete.append(guideNode)
+            transformNode = guideNode.GetParentTransformNode()
+            if transformNode and transformNode.IsA("vtkMRMLLinearTransformNode"):
+                transformsToDelete.append(transformNode)
+
+            # 만약 현재 선택된 가이드 노드가 미러링된 노드라면, 원본 가이드 노드도 찾아 삭제 목록에 추가
+            guideName = guideNode.GetName()
+            if guideName.endswith("_Mirrored"):
+                originalName = guideName[:-9]  # "_Mirrored" 제거
+                originalNode = slicer.mrmlScene.GetFirstNodeByName(originalName)
+                if originalNode and originalNode.IsA("vtkMRMLModelNode") and originalNode not in nodesToDelete:
+                    nodesToDelete.append(originalNode)
+                    origTransform = originalNode.GetParentTransformNode()
+                    if origTransform and origTransform.IsA("vtkMRMLLinearTransformNode"):
+                        transformsToDelete.append(origTransform)
+
+        # 2. 대상 모델 노드 수집 및 연관 변환 노드 추적
         nodes = slicer.mrmlScene.GetNodesByClass("vtkMRMLModelNode")
         for i in range(nodes.GetNumberOfItems()):
             node = nodes.GetItemAsObject(i)
             nodeName = node.GetName()
+            # 분리 골편 또는 미러링된 대칭 가이드 모델인 경우
             if nodeName.startswith("Femur_Fragment") or nodeName.endswith("_Mirrored"):
-                nodesToDelete.append(node)
+                if node not in nodesToDelete:
+                    nodesToDelete.append(node)
                 
                 # 모델에 직접 연결된 부모 변환 노드도 삭제 대상으로 수집
                 transformNode = node.GetParentTransformNode()
@@ -281,7 +306,7 @@ class FemurFracturePlannerFragmentManagerMixin:
                         if transformNode not in transformsToDelete:
                             transformsToDelete.append(transformNode)
 
-        # 2. 씬에 고아로 남아 있을 수 있는 이름이 유사한 뼈 조각 전용 변환 노드들도 수집
+        # 3. 씬에 고아로 남아 있을 수 있는 이름이 유사한 뼈 조각 전용 변환 노드들도 수집
         transformNodes = slicer.mrmlScene.GetNodesByClass("vtkMRMLLinearTransformNode")
         for i in range(transformNodes.GetNumberOfItems()):
             tNode = transformNodes.GetItemAsObject(i)
@@ -307,6 +332,9 @@ class FemurFracturePlannerFragmentManagerMixin:
                 slicer.mrmlScene.RemoveNode(node)
             for tNode in transformsToDelete:
                 slicer.mrmlScene.RemoveNode(tNode)
+
+            # 가이드 선택 상태를 None으로 완전 해제
+            self.ui.guideModelSelector.setCurrentNode(None)
 
             slicer.util.forceRenderAllViews()
             self.updateFragmentTable()

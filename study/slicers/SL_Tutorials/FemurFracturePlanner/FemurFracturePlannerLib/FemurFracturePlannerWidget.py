@@ -1,10 +1,12 @@
 """
 File Name: FemurFracturePlannerWidget.py
-Version: v0-2.0.0
-Date: 2026-06-24
+Version: v0-2.0.1
+Date: 2026-06-25
 Description: 대퇴골 골절 계획 모듈의 팝업 UI 생성, 위젯 생명주기 관리, 공통 이벤트 연결을 담당한다.
 
 Version History:
+- v0-2.0.1 (2026-06-25)
+  - 가이드 모델 보기/숨기기 버튼(guideVisibilityButton) 클릭 시 toggled 이벤트가 동작하도록 checkable 속성을 True로 켜주는 패치 적용 (Z 증가)
 - v0-2.0.0 (2026-06-24)
   - 뼈 마스킹 에지 검출 테스트용 버튼을 1.5 영상 처리 레이아웃에 동적으로 추가하고 바인딩하는 로직 구현 (X 증가, Y/Z 초기화)
 - v0-1.1.0 (2026-06-24)
@@ -229,8 +231,15 @@ class FemurFracturePlannerWidget(
         self.ui.mirrorGuideButton.connect("clicked(bool)", self.onMirrorGuideClicked)
         self.ui.runIcpReductionButton.connect("clicked(bool)", self.onRunIcpReductionClicked)
         self.ui.runSurfaceSnapButton.connect("clicked(bool)", self.onRunSurfaceSnapClicked)
+        self.ui.runLandmarkMatchButton.connect("clicked(bool)", self.onRunLandmarkMatchClicked)
+        self.ui.runMaskMatchButton.connect("clicked(bool)", self.onRunMaskMatchClicked)
+        self.ui.clearMarkersButton.connect("clicked(bool)", self.onClearMarkersClicked)
         self.ui.loadGuideButton.connect("clicked(bool)", self.onLoadGuideClicked)
+        # guideVisibilityButton은 QPushButton이므로 toggled 시그널 발생을 위해 checkable 속성을 True로 활성화
+        self.ui.guideVisibilityButton.setCheckable(True)
         self.ui.guideVisibilityButton.connect("toggled(bool)", self.onGuideVisibilityToggled)
+        self.ui.guideInteractionButton.setCheckable(True)
+        self.ui.guideInteractionButton.connect("toggled(bool)", self.onGuideInteractionToggled)
         self.ui.guideModelSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onGuideModelChanged)
         self.ui.refreshManagerButton.connect("clicked(bool)", self.updateFragmentTable)
         self.ui.clearModelsButton.connect("clicked(bool)", self.onClearModelsClicked)

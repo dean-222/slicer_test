@@ -1,10 +1,12 @@
 """
 File Name: FemurFracturePlannerWorkflow.py
-Version: v0-2.0.0
-Date: 2026-06-24
+Version: v0-2.0.1
+Date: 2026-06-25
 Description: 대퇴골 골절 계획 모듈의 입력, 렌더링, 회전, 세그멘테이션, 가이드 모델 작업 흐름을 담당한다.
 
 Version History:
+- v0-2.0.1 (2026-06-25)
+  - 골편 분리 성공 시 volumeRendering 토글 여부와 상관없이 무조건 목록 테이블이 갱신되도록 분기문 논리 오류 수정 (Z 증가)
 - v0-2.0.0 (2026-06-24)
   - 뼈 임계치(Threshold) 미만을 마스킹한 후 3D 에지를 검출하는 onMaskedEdgeDetectionClicked 핸들러 추가 (X 증가, Y/Z 초기화)
 - v0-1.1.0 (2026-06-24)
@@ -21,6 +23,7 @@ import logging
 
 import qt
 import slicer
+import vtk
 
 from slicer.i18n import tr as _
 
@@ -417,14 +420,14 @@ class FemurFracturePlannerWorkflowMixin:
         if separatedCount > 0:
             slicer.util.infoDisplay(_(f"{separatedCount}개의 독립 골편으로 분리했습니다."))
 
-            inputNode = self.ui.inputVolumeSelector.currentNode()
-            if inputNode and self.ui.volumeRenderingVisibilityButton.checked:
-                # 분리된 골편 모델을 잘 보기 위해 기존 volume rendering을 자동으로 끈다.
+            # 3D 볼륨 렌더링이 활성화되어 있다면, 뼈 조각 모델을 뚜렷하게 관찰할 수 있도록 가시성을 자동으로 꺼둠
+            if self.ui.volumeRenderingVisibilityButton.checked:
                 self.ui.volumeRenderingVisibilityButton.checked = False
 
-                self.updateFragmentTable()
-            else:
-                slicer.util.errorDisplay(_("유효한 골편을 추출하지 못했습니다. 세그멘테이션에 실제 영역이 있는지 확인하세요."))
+            # 골편 분리 성공 시 테이블 목록을 무조건 강제 갱신
+            self.updateFragmentTable()
+        else:
+            slicer.util.errorDisplay(_("유효한 골편을 추출하지 못했습니다. 세그멘테이션에 실제 영역이 있는지 확인하세요."))
 
     def onMirrorGuideClicked(self) -> None:
         """6단계: 로드된 정상측 가이드를 X축 대칭 거울상 연산하고 법선을 보정한 가이드 뼈 모델을 신설한다."""
@@ -494,6 +497,132 @@ class FemurFracturePlannerWorkflowMixin:
             self.onFragmentTableSelectionChanged()
             slicer.util.infoDisplay(_("Fracture Surface Snap이 완료되었습니다."))
 
+    def onRunLandmarkMatchClicked(self) -> None:
+        """수동 타겟팅: 마커 기반 정밀 매칭 (점 찍기)"""
+        guideNode = self.ui.guideModelSelector.currentNode()
+        if not guideNode:
+            slicer.util.errorDisplay(_("먼저 가이드 모델을 선택하세요."))
+            return
+            
+        selectedItems = self.ui.fragmentTableWidget.selectedItems()
+        if not selectedItems:
+            slicer.util.errorDisplay(_("표에서 움직일 대상 골편을 1개 선택하세요."))
+            return
+            
+        fragmentNodeId = selectedItems[0].data(qt.Qt.UserRole)
+        fragmentNode = slicer.mrmlScene.GetNodeByID(fragmentNodeId)
+        
+        sourceMarkersNode = slicer.mrmlScene.GetFirstNodeByName("Targeting_Source_Markers")
+        targetMarkersNode = slicer.mrmlScene.GetFirstNodeByName("Targeting_Target_Markers")
+        
+        if not sourceMarkersNode or not targetMarkersNode:
+            if not sourceMarkersNode:
+                sourceMarkersNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLMarkupsFiducialNode", "Targeting_Source_Markers")
+                sourceMarkersNode.GetDisplayNode().SetSelectedColor(1, 1, 0)
+            if not targetMarkersNode:
+                targetMarkersNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLMarkupsFiducialNode", "Targeting_Target_Markers")
+                targetMarkersNode.GetDisplayNode().SetSelectedColor(0, 1, 1)
+                
+            selectionNode = slicer.mrmlScene.GetNodeByID("vtkMRMLSelectionNodeSingleton")
+            selectionNode.SetReferenceActivePlaceNodeClassName("vtkMRMLMarkupsFiducialNode")
+            selectionNode.SetActivePlaceNodeID(sourceMarkersNode.GetID())
+            interactionNode = slicer.mrmlScene.GetNodeByID("vtkMRMLInteractionNodeSingleton")
+            interactionNode.SetCurrentInteractionMode(slicer.vtkMRMLInteractionNode.Place)
+                
+            slicer.util.infoDisplay(_("마커 노드가 생성되어 '마우스 점 찍기 모드'가 자동으로 켜졌습니다.\n\n"
+                                      "1. 3D 뷰어에서 움직일 대상 골편 표면에 점 3개를 클릭해 찍습니다.\n"
+                                      "2. 이어서 기준 가이드 표면에 똑같이 점 3개를 연달아 찍습니다. (총 6개)\n"
+                                      "3. 완료 후 이 버튼을 다시 눌러주세요."))
+            return
+            
+        # 사용자가 대상을 바꾸지 않고 Source 노드(노란색)에만 6개(또는 짝수개)를 연달아 찍은 경우 자동 분할 편의성 제공
+        if sourceMarkersNode.GetNumberOfControlPoints() >= 6 and targetMarkersNode.GetNumberOfControlPoints() == 0:
+            numTotal = sourceMarkersNode.GetNumberOfControlPoints()
+            # 짝수 개수만 허용하여 앞 절반은 Source, 뒤 절반은 Target으로 분할
+            if numTotal % 2 == 0:
+                numHalf = numTotal // 2
+                for i in range(numHalf, numTotal):
+                    pos = [0.0, 0.0, 0.0]
+                    sourceMarkersNode.GetNthControlPointPositionWorld(i, pos)
+                    targetMarkersNode.AddControlPointWorld(vtk.vtkVector3d(pos[0], pos[1], pos[2]))
+                # Source에서는 복사된 뒤쪽 점들을 제거 (인덱스 오류 방지를 위해 역순 삭제)
+                for i in range(numTotal - 1, numHalf - 1, -1):
+                    sourceMarkersNode.RemoveNthControlPoint(i)
+            
+        if sourceMarkersNode.GetNumberOfControlPoints() < 3 or targetMarkersNode.GetNumberOfControlPoints() < 3:
+            slicer.util.errorDisplay(_("점(마커) 개수가 부족합니다. 각각 최소 3개의 점이 필요합니다."))
+            return
+            
+        if sourceMarkersNode.GetNumberOfControlPoints() != targetMarkersNode.GetNumberOfControlPoints():
+            slicer.util.errorDisplay(_("두 마커 노드의 점 개수가 일치하지 않습니다."))
+            return
+            
+        logging.info("Running Landmark Registration")
+        with slicer.util.tryWithErrorDisplay(_("마커 기반 매칭 실행에 실패했습니다."), waitCursor=True):
+            self.logic.runLandmarkRegistration(fragmentNode, guideNode, sourceMarkersNode, targetMarkersNode)
+            self.updateFragmentTable()
+            slicer.util.infoDisplay(_("마커 기반 정밀 매칭이 완료되었습니다."))
+
+    def onRunMaskMatchClicked(self) -> None:
+        """수동 타겟팅: 색칠 영역 기반 매칭 (마스킹)"""
+        guideNode = self.ui.guideModelSelector.currentNode()
+        if not guideNode:
+            slicer.util.errorDisplay(_("먼저 가이드 모델을 선택하세요."))
+            return
+            
+        selectedItems = self.ui.fragmentTableWidget.selectedItems()
+        if not selectedItems:
+            slicer.util.errorDisplay(_("표에서 움직일 대상 골편을 1개 선택하세요."))
+            return
+            
+        fragmentNodeId = selectedItems[0].data(qt.Qt.UserRole)
+        fragmentNode = slicer.mrmlScene.GetNodeByID(fragmentNodeId)
+        
+        segNode = self.ui.activeSegmentationSelector.currentNode()
+        if not segNode:
+            slicer.util.errorDisplay(_("먼저 입력 세그멘테이션 노드를 5번 영역에서 지정하세요 (4번 에디터와 연동됨)."))
+            return
+            
+        segmentation = segNode.GetSegmentation()
+        sourceSegId = segmentation.GetSegmentIdBySegmentName("Targeting_Source_ROI")
+        targetSegId = segmentation.GetSegmentIdBySegmentName("Targeting_Target_ROI")
+        
+        if not sourceSegId or not targetSegId:
+            if not sourceSegId:
+                segNode.GetSegmentation().AddEmptySegment("Targeting_Source_ROI", "Targeting_Source_ROI", [1.0, 1.0, 0.0])
+            if not targetSegId:
+                segNode.GetSegmentation().AddEmptySegment("Targeting_Target_ROI", "Targeting_Target_ROI", [0.0, 1.0, 1.0])
+            
+            slicer.util.infoDisplay(_("세그멘테이션 라벨(Targeting_Source_ROI, Targeting_Target_ROI)이 추가되었습니다.\n\n"
+                                      "4번 Segment Editor 탭에서 Paint 브러시를 이용해\n"
+                                      "움직일 골편 단면과 기준 가이드 단면을 각각 색칠한 뒤\n"
+                                      "이 버튼을 다시 눌러주세요."))
+            return
+            
+        logging.info("Running Mask-based ICP Registration")
+        with slicer.util.tryWithErrorDisplay(_("색칠 영역 기반 매칭 실행에 실패했습니다."), waitCursor=True):
+            self.logic.runMaskedIcpRegistration(fragmentNode, guideNode, segNode, sourceSegId, targetSegId)
+            self.updateFragmentTable()
+            slicer.util.infoDisplay(_("색칠 영역 기반 매칭이 완료되었습니다."))
+
+    def onClearMarkersClicked(self) -> None:
+        """수동 타겟팅용 마커(점) 노드들을 모두 지우고 초기화한다."""
+        sourceMarkersNode = slicer.mrmlScene.GetFirstNodeByName("Targeting_Source_Markers")
+        targetMarkersNode = slicer.mrmlScene.GetFirstNodeByName("Targeting_Target_Markers")
+        
+        cleared = False
+        if sourceMarkersNode:
+            sourceMarkersNode.RemoveAllControlPoints()
+            cleared = True
+        if targetMarkersNode:
+            targetMarkersNode.RemoveAllControlPoints()
+            cleared = True
+            
+        if cleared:
+            slicer.util.infoDisplay(_("마커(점)가 모두 지워졌습니다. 이제 다시 정확한 위치에 순서대로 점을 찍어주세요."))
+        else:
+            slicer.util.infoDisplay(_("지울 마커가 없습니다."))
+
     def onLoadGuideClicked(self) -> None:
         """외부 3D 뼈 파일(*.stl, *.obj 등)을 다이렉트 선택 로드하여 가이드 모델 노드로 배치한다."""
         filePath = qt.QFileDialog.getOpenFileName(
@@ -537,6 +666,43 @@ class FemurFracturePlannerWorkflowMixin:
             self.ui.guideVisibilityButton.text = _("보기")
             self.ui.guideVisibilityButton.toolTip = _("뷰어에서 가이드 모델을 표시합니다.")
 
+    def onGuideInteractionToggled(self, checked: bool) -> None:
+        """가이드 모델의 3D 뷰 수동 조작 Gizmo 표시를 토글한다."""
+        guideNode = self.ui.guideModelSelector.currentNode()
+        if not guideNode:
+            if checked:
+                self.ui.guideInteractionButton.blockSignals(True)
+                self.ui.guideInteractionButton.checked = False
+                self.ui.guideInteractionButton.blockSignals(False)
+                slicer.util.errorDisplay(_("먼저 가이드 모델을 선택하세요."))
+            return
+
+        transformNode = guideNode.GetParentTransformNode()
+        originalParentTransform = None
+
+        if transformNode and not transformNode.GetName().endswith("_Transform"):
+            originalParentTransform = transformNode
+            transformNode = None
+
+        if not transformNode or not transformNode.IsA("vtkMRMLLinearTransformNode"):
+            transformNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLinearTransformNode")
+            transformNode.SetName(f"{guideNode.GetName()}_Transform")
+
+            if originalParentTransform:
+                transformNode.SetAndObserveTransformNodeID(originalParentTransform.GetID())
+
+            guideNode.SetAndObserveTransformNodeID(transformNode.GetID())
+
+        tDisplayNode = transformNode.GetDisplayNode()
+        if not tDisplayNode:
+            transformNode.CreateDefaultDisplayNodes()
+            tDisplayNode = transformNode.GetDisplayNode()
+
+        if tDisplayNode:
+            tDisplayNode.SetEditorVisibility(checked)
+
+        slicer.util.forceRenderAllViews()
+
     def onGuideModelChanged(self, node) -> None:
         """선택 가이드 모델이 변경되면, 해당 신규 가이드 모델의 표시 visibility 값을 획득해 UI 버튼 체크 상태와 연동한다."""
         if not node:
@@ -544,10 +710,21 @@ class FemurFracturePlannerWorkflowMixin:
             self.ui.guideVisibilityButton.checked = False
             self.ui.guideVisibilityButton.text = _("보기")
             self.ui.guideVisibilityButton.blockSignals(False)
+            
+            self.ui.guideInteractionButton.blockSignals(True)
+            self.ui.guideInteractionButton.checked = False
+            self.ui.guideInteractionButton.blockSignals(False)
             return
 
         displayNode = node.GetDisplayNode()
         isVisible = displayNode.GetVisibility() if displayNode else False
+
+        transformNode = node.GetParentTransformNode()
+        isInteractable = False
+        if transformNode and transformNode.GetName().endswith("_Transform"):
+            tDisplayNode = transformNode.GetDisplayNode()
+            if tDisplayNode:
+                isInteractable = tDisplayNode.GetEditorVisibility()
 
         # 실제 모델 표시 상태를 버튼 체크 상태와 텍스트에 반영한다.
         self.ui.guideVisibilityButton.checked = isVisible
@@ -556,6 +733,10 @@ class FemurFracturePlannerWorkflowMixin:
         else:
             self.ui.guideVisibilityButton.text = _("보기")
         self.ui.guideVisibilityButton.blockSignals(False)
+
+        self.ui.guideInteractionButton.blockSignals(True)
+        self.ui.guideInteractionButton.checked = isInteractable
+        self.ui.guideInteractionButton.blockSignals(False)
 
     def onNodeRemoved(self, caller, event) -> None:
         """장면(Scene)에서 골편 모델이 제거(Remove)되면 QTableWidget 목록에서 해당 행을 정리한다."""
