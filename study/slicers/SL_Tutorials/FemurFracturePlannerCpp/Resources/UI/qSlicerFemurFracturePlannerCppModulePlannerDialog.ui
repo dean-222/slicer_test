@@ -1,0 +1,829 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+File Name: FemurFracturePlanner.ui
+Version: v0-15.0.0
+Date: 2026-06-23
+Description: Femur Fracture Planner 모듈의 Qt UI 레이아웃 파일
+
+Version History:
+
+- v0-15.0.0 (2026-06-23)
+  - 1.5. Image Processing 섹션 추가 및 Invert Intensity / Edge Detection (3D) 버튼 연동 (X 증가, Y/Z 초기화)
+-->
+<ui version="4.0">
+ <class>FemurFracturePlanner</class>
+ <widget class="qMRMLWidget" name="FemurFracturePlanner">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>850</width>
+    <height>830</height>
+   </rect>
+  </property>
+  <layout class="QHBoxLayout" name="mainHLayout">
+   
+   <!-- Left Column (Steps 1 to 4) -->
+   <item>
+    <layout class="QVBoxLayout" name="leftVLayout">
+     
+     <!-- 1. Input CT Volume Selection with Eye Toggle & File Loader -->
+     <item>
+      <widget class="ctkCollapsibleButton" name="inputCollapsibleButton">
+       <property name="text">
+        <string>1. CT 볼륨 입력</string>
+       </property>
+       <layout class="QFormLayout" name="inputFormLayout">
+        <item row="0" column="0">
+         <widget class="QLabel" name="inputVolumeLabel">
+          <property name="text">
+           <string>입력 볼륨:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <layout class="QHBoxLayout" name="volumeSelectHLayout">
+          <item>
+           <widget class="qMRMLNodeComboBox" name="inputVolumeSelector">
+            <property name="toolTip">
+             <string>입력으로 사용할 CT 볼륨 노드를 선택합니다.</string>
+            </property>
+            <property name="nodeTypes">
+             <stringlist notr="true">
+              <string>vtkMRMLScalarVolumeNode</string>
+             </stringlist>
+            </property>
+            <property name="showChildNodeTypes">
+             <bool>false</bool>
+            </property>
+            <property name="addEnabled">
+             <bool>false</bool>
+            </property>
+            <property name="removeEnabled">
+             <bool>false</bool>
+            </property>
+            <property name="SlicerParameterName" stdset="0">
+             <string>inputVolume</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="volumeVisibilityButton">
+            <property name="text">
+             <string>보기</string>
+            </property>
+            <property name="checkable">
+             <bool>true</bool>
+            </property>
+            <property name="toolTip">
+             <string>슬라이스 뷰어에서 볼륨 표시를 켜거나 끕니다.</string>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>60</width>
+              <height>16777215</height>
+             </size>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item row="1" column="0" colspan="2">
+         <widget class="QPushButton" name="loadVolumeButton">
+          <property name="text">
+           <string>📁 CT 볼륨 불러오기 (파일)</string>
+          </property>
+          <property name="toolTip">
+           <string>로컬 저장소에서 CT 볼륨 파일(.nrrd, .nii, .nii.gz 등)을 불러옵니다.</string>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="0" colspan="2">
+         <widget class="QPushButton" name="loadDicomButton">
+          <property name="text">
+           <string>📁 CT 볼륨 불러오기 (DICOM DB)</string>
+          </property>
+          <property name="toolTip">
+           <string>Slicer의 DICOM 데이터베이스 브라우저를 팝업으로 열어 볼륨을 불러옵니다.</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+     </item>
+
+     <!-- 1.5. Image Processing (2D/3D Filter) -->
+     <item>
+      <widget class="ctkCollapsibleButton" name="imageProcessingCollapsibleButton">
+       <property name="text">
+        <string>1.5. 영상 처리</string>
+       </property>
+       <layout class="QVBoxLayout" name="imageProcessingVLayout">
+        <item>
+         <layout class="QHBoxLayout" name="processingButtonsLayout">
+          <item>
+           <widget class="QPushButton" name="invertIntensityButton">
+            <property name="text">
+             <string>밝기 반전</string>
+            </property>
+            <property name="toolTip">
+             <string>선택한 입력 볼륨의 intensity 값을 반전합니다.</string>
+            </property>
+            <property name="styleSheet">
+             <string>font-weight: bold; background-color: #f1f8e9;</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="edgeDetectionButton">
+            <property name="text">
+             <string>에지 검출 (3D)</string>
+            </property>
+            <property name="toolTip">
+             <string>Gradient Magnitude를 사용해 선택한 입력 볼륨의 경계를 검출합니다.</string>
+            </property>
+            <property name="styleSheet">
+             <string>font-weight: bold; background-color: #f3e5f5;</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+       </layout>
+      </widget>
+     </item>
+
+     <!-- 2. Real-time 3D Volume Rendering -->
+     <item>
+      <widget class="ctkCollapsibleButton" name="renderingCollapsibleButton">
+       <property name="text">
+        <string>2. 3D 볼륨 렌더링 (CT-Bone)</string>
+       </property>
+       <layout class="QVBoxLayout" name="renderingVLayout">
+        <item>
+         <layout class="QHBoxLayout" name="switchHLayout">
+          <item>
+           <widget class="QLabel" name="enableRenderingLabel">
+            <property name="text">
+             <string>볼륨 렌더링 표시:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="volumeRenderingVisibilityButton">
+            <property name="text">
+             <string>👁️ 보기</string>
+            </property>
+            <property name="checkable">
+             <bool>true</bool>
+            </property>
+            <property name="toolTip">
+             <string>3D 볼륨 렌더링 표시를 켜거나 끕니다.</string>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>80</width>
+              <height>16777215</height>
+             </size>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QFormLayout" name="thresholdFormLayout">
+          <item row="0" column="0">
+           <widget class="QLabel" name="thresholdLabel">
+            <property name="text">
+             <string>Threshold (HU):</string>
+            </property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="ctkSliderWidget" name="thresholdSlider">
+            <property name="toolTip">
+             <string>뼈가 보이는 threshold 값을 실시간으로 조절합니다.</string>
+            </property>
+            <property name="minimum">
+             <double>100</double>
+            </property>
+            <property name="maximum">
+             <double>1500</double>
+            </property>
+            <property name="value">
+             <double>200</double>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+       </layout>
+      </widget>
+     </item>
+
+     <!-- 3. Image Rotation Control -->
+     <item>
+      <widget class="ctkCollapsibleButton" name="rotationCollapsibleButton">
+       <property name="text">
+        <string>3. 실시간 3D 회전 제어</string>
+       </property>
+       <layout class="QVBoxLayout" name="rotationVLayout">
+        <item>
+         <widget class="QGroupBox" name="axisGroupBox">
+          <property name="title">
+           <string>회전 축</string>
+          </property>
+          <layout class="QHBoxLayout" name="axisHLayout">
+           <item>
+            <widget class="QRadioButton" name="rotationXRadio">
+             <property name="text">
+              <string>X축</string>
+             </property>
+             <property name="checked">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QRadioButton" name="rotationYRadio">
+             <property name="text">
+              <string>Y축</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QRadioButton" name="rotationZRadio">
+             <property name="text">
+              <string>Z축</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <layout class="QFormLayout" name="fineRotationLayout">
+          <item row="0" column="0">
+           <widget class="QLabel" name="angleLabel">
+            <property name="text">
+             <string>각도 (°):</string>
+            </property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="ctkSliderWidget" name="rotationAngleSlider">
+            <property name="toolTip">
+             <string>볼륨을 대화형으로 회전합니다.</string>
+            </property>
+            <property name="minimum">
+             <double>-180</double>
+            </property>
+            <property name="maximum">
+             <double>180</double>
+            </property>
+            <property name="value">
+             <double>0</double>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="rotationButtonsLayout">
+          <item>
+           <widget class="QPushButton" name="resetRotationButton">
+            <property name="text">
+             <string>초기화 (0°)</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="rotate90Button">
+            <property name="text">
+             <string>+90° 회전</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+       </layout>
+      </widget>
+     </item>
+
+     <!-- 4. Embedded Segment Editor -->
+     <item>
+      <widget class="ctkCollapsibleButton" name="segmentEditorCollapsibleButton">
+       <property name="text">
+        <string>4. 내장 Segment Editor</string>
+       </property>
+       <layout class="QVBoxLayout" name="editorVLayout">
+        <item>
+         <widget class="QWidget" name="segmentEditorAnchorWidget" native="true">
+          <property name="minimumSize">
+           <size>
+            <width>0</width>
+            <height>350</height>
+           </size>
+          </property>
+          <layout class="QVBoxLayout" name="anchorVLayout">
+           <property name="spacing">
+            <number>0</number>
+           </property>
+           <property name="leftMargin">
+            <number>0</number>
+           </property>
+           <property name="topMargin">
+            <number>0</number>
+           </property>
+           <property name="rightMargin">
+            <number>0</number>
+           </property>
+           <property name="bottomMargin">
+            <number>0</number>
+           </property>
+          </layout>
+         </widget>
+        </item>
+       </layout>
+       </widget>
+      </item>
+     </layout>
+    </item>
+
+   <!-- Right Column (Steps 5 to 7) -->
+   <item>
+    <layout class="QVBoxLayout" name="rightVLayout">
+     
+     <!-- 5. Fracture Fragment Separation -->
+     <item>
+      <widget class="ctkCollapsibleButton" name="fragmentSeparationCollapsibleButton">
+       <property name="text">
+        <string>5. 골절 골편 분리</string>
+       </property>
+       <layout class="QFormLayout" name="separationFormLayout">
+        <item row="0" column="0">
+         <widget class="QLabel" name="targetSegmentationLabel">
+          <property name="text">
+           <string>입력 세그멘테이션:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="qMRMLNodeComboBox" name="activeSegmentationSelector">
+          <property name="toolTip">
+           <string>서로 분리된 구성 요소를 분할할 세그멘테이션 노드를 선택합니다.</string>
+          </property>
+          <property name="nodeTypes">
+           <stringlist notr="true">
+            <string>vtkMRMLSegmentationNode</string>
+           </stringlist>
+          </property>
+          <property name="showChildNodeTypes">
+           <bool>false</bool>
+          </property>
+          <property name="addEnabled">
+           <bool>false</bool>
+          </property>
+          <property name="removeEnabled">
+           <bool>false</bool>
+          </property>
+          <property name="noneEnabled">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="0" colspan="2">
+         <widget class="QPushButton" name="separateFragmentsButton">
+          <property name="text">
+           <string>골편 분리 실행</string>
+          </property>
+          <property name="styleSheet">
+           <string>font-weight: bold; background-color: #fff3e0;</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+     </item>
+
+     <!-- 6. Virtual Bone Reduction -->
+     <item>
+      <widget class="ctkCollapsibleButton" name="virtualReductionCollapsibleButton">
+       <property name="text">
+        <string>6. 가상 뼈 정복</string>
+       </property>
+       <layout class="QFormLayout" name="reductionFormLayout">
+        <item row="0" column="0">
+         <widget class="QLabel" name="guideModelLabel">
+          <property name="text">
+           <string>가이드 모델:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <layout class="QHBoxLayout" name="guideSelectHLayout">
+          <item>
+           <widget class="qMRMLNodeComboBox" name="guideModelSelector">
+            <property name="toolTip">
+             <string>기준으로 사용할 가이드 뼈 모델(예: 반대측 정상 뼈)을 선택합니다.</string>
+            </property>
+            <property name="nodeTypes">
+             <stringlist notr="true">
+              <string>vtkMRMLModelNode</string>
+             </stringlist>
+            </property>
+            <property name="showChildNodeTypes">
+             <bool>false</bool>
+            </property>
+            <property name="addEnabled">
+             <bool>false</bool>
+            </property>
+            <property name="removeEnabled">
+             <bool>false</bool>
+            </property>
+            <property name="noneEnabled">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="guideVisibilityButton">
+            <property name="text">
+             <string>보기</string>
+            </property>
+            <property name="checkable">
+             <bool>true</bool>
+            </property>
+            <property name="toolTip">
+             <string>3D 및 2D 뷰어에서 가이드 모델 표시를 켜거나 끕니다.</string>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>60</width>
+              <height>16777215</height>
+             </size>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="guideInteractionButton">
+            <property name="text">
+             <string>이동</string>
+            </property>
+            <property name="checkable">
+             <bool>true</bool>
+            </property>
+            <property name="toolTip">
+             <string>3D 뷰어에서 가이드 모델을 직접 조작(이동/회전)할 수 있는 기즈모를 켜거나 끕니다.</string>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>60</width>
+              <height>16777215</height>
+             </size>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="loadGuideButton">
+            <property name="text">
+             <string>📁 데이터 추가</string>
+            </property>
+            <property name="toolTip">
+             <string>로컬 저장소에서 가이드 뼈 모델 파일(.stl, .obj, .ply)을 불러옵니다.</string>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>85</width>
+              <height>16777215</height>
+             </size>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item row="1" column="0" colspan="2">
+         <widget class="QPushButton" name="mirrorGuideButton">
+          <property name="text">
+           <string>가이드 미러링 (X축 반전)</string>
+          </property>
+          <property name="toolTip">
+           <string>선택한 가이드 모델을 X축 기준으로 반전합니다.</string>
+          </property>
+          <property name="styleSheet">
+           <string>font-weight: bold; background-color: #e3f2fd;</string>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="0" colspan="2">
+         <widget class="QPushButton" name="runSurfaceSnapButton">
+          <property name="text">
+           <string>골절면 스냅 실행</string>
+          </property>
+          <property name="toolTip">
+           <string>가이드 정복 전에 골편 사이의 골절면을 직접 맞춰 정렬합니다.</string>
+          </property>
+          <property name="styleSheet">
+           <string>font-weight: bold; background-color: #fff8e1; border: 1px solid #ffe082; padding: 3px;</string>
+          </property>
+         </widget>
+        </item>
+        <item row="3" column="0" colspan="2">
+         <widget class="QPushButton" name="runIcpReductionButton">
+          <property name="text">
+           <string>ICP 자동 정복 실행</string>
+          </property>
+          <property name="toolTip">
+           <string>ICP를 사용해 분리된 골편 모델을 가이드 모델에 자동 정렬합니다.</string>
+          </property>
+          <property name="styleSheet">
+           <string>font-weight: bold; background-color: #e8f5e9;</string>
+          </property>
+          </widget>
+         </item>
+         <item row="4" column="0" colspan="2">
+          <widget class="QGroupBox" name="manualTargetingGroupBox">
+           <property name="title">
+            <string>수동 타겟팅 매칭 (선택 사항)</string>
+           </property>
+           <property name="styleSheet">
+            <string>QGroupBox { font-weight: bold; border: 1px solid #ccc; margin-top: 10px; padding-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 3px; }</string>
+           </property>
+           <layout class="QVBoxLayout" name="manualTargetingVLayout">
+            <item>
+             <widget class="QPushButton" name="runLandmarkMatchButton">
+              <property name="text">
+               <string>📍 마커 기반 정밀 매칭 (점 찍기)</string>
+              </property>
+              <property name="toolTip">
+               <string>골편과 가이드 표면에 마커(점)를 찍어 해당 지점끼리 강제로 맞춥니다.</string>
+              </property>
+              <property name="styleSheet">
+               <string>font-weight: bold; background-color: #e1f5fe;</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="runMaskMatchButton">
+              <property name="text">
+               <string>🖌️ 색칠 영역 기반 매칭 (마스킹)</string>
+              </property>
+              <property name="toolTip">
+               <string>골편과 가이드 표면을 브러시로 칠한 뒤, 칠해진 영역끼리만 추출하여 맞물립니다.</string>
+              </property>
+              <property name="styleSheet">
+               <string>font-weight: bold; background-color: #f3e5f5;</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="clearMarkersButton">
+              <property name="text">
+               <string>❌ 찍은 마커(점) 모두 지우기</string>
+              </property>
+              <property name="toolTip">
+               <string>잘못 찍힌 점들을 모두 삭제하고 초기 상태로 되돌립니다.</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="clearMasksButton">
+              <property name="text">
+               <string>🧽 색칠한 마스킹 영역 모두 지우기</string>
+              </property>
+              <property name="toolTip">
+               <string>칠해진 마스킹 영역(Targeting_Source_ROI, Targeting_Target_ROI)을 깨끗하게 비웁니다.</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+     </item>
+
+     <!-- 7. Fragment Manager -->
+     <item>
+      <widget class="ctkCollapsibleButton" name="fragmentManagerCollapsibleButton">
+       <property name="text">
+        <string>7. 골편 관리자</string>
+       </property>
+       <layout class="QVBoxLayout" name="managerVLayout">
+        <item>
+         <widget class="QTableWidget" name="fragmentTableWidget">
+          <property name="minimumSize">
+           <size>
+            <width>0</width>
+            <height>180</height>
+           </size>
+          </property>
+          <property name="columnCount">
+           <number>5</number>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QGroupBox" name="transformDisplayGroupBox">
+          <property name="title">
+           <string>선택 골편 위치 및 회전 (실시간)</string>
+          </property>
+          <property name="styleSheet">
+           <string>QGroupBox { font-weight: bold; color: #1565c0; border: 1px solid #bbdefb; border-radius: 5px; margin-top: 10px; padding-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 3px; }</string>
+          </property>
+          <layout class="QFormLayout" name="transformFormLayout">
+           <property name="horizontalSpacing">
+            <number>15</number>
+           </property>
+           <property name="verticalSpacing">
+            <number>8</number>
+           </property>
+           <item row="0" column="0">
+            <widget class="QLabel" name="selectedNameLabel">
+             <property name="text">
+              <string>선택 골편:</string>
+             </property>
+             <property name="styleSheet">
+              <string>font-weight: bold;</string>
+             </property>
+            </widget>
+           </item>
+           <item row="0" column="1">
+            <widget class="QLineEdit" name="selectedNameValue">
+             <property name="readOnly">
+              <bool>true</bool>
+             </property>
+             <property name="text">
+              <string>없음 (표에서 행을 선택하세요)</string>
+             </property>
+             <property name="styleSheet">
+              <string>background-color: #f5f5f5; border: none; font-weight: bold; color: #555;</string>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="0">
+            <widget class="QLabel" name="positionLabel">
+             <property name="text">
+              <string>위치 (X, Y, Z):</string>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="1">
+            <widget class="QLineEdit" name="positionValue">
+             <property name="readOnly">
+              <bool>true</bool>
+             </property>
+             <property name="text">
+              <string>N/A</string>
+             </property>
+             <property name="styleSheet">
+              <string>background-color: #e8f5e9; border: 1px solid #a5d6a7; border-radius: 3px; font-family: Courier New; font-size: 11pt; font-weight: bold; color: #2e7d32; padding: 3px;</string>
+             </property>
+            </widget>
+           </item>
+           <item row="2" column="0">
+            <widget class="QLabel" name="rotationLabel">
+             <property name="text">
+              <string>회전 (R, P, Y):</string>
+             </property>
+            </widget>
+           </item>
+           <item row="2" column="1">
+            <widget class="QLineEdit" name="rotationValue">
+             <property name="readOnly">
+              <bool>true</bool>
+             </property>
+             <property name="text">
+              <string>N/A</string>
+             </property>
+             <property name="styleSheet">
+              <string>background-color: #fff3e0; border: 1px solid #ffcc80; border-radius: 3px; font-family: Courier New; font-size: 11pt; font-weight: bold; color: #e65100; padding: 3px;</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="managerButtonsHLayout">
+          <item>
+           <widget class="QPushButton" name="refreshManagerButton">
+            <property name="text">
+             <string>🔄 목록 새로고침</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="clearModelsButton">
+            <property name="text">
+             <string>🗑️ 전체 골편 삭제</string>
+            </property>
+            <property name="toolTip">
+             <string>분리된 골편 및 미러링 모델 노드를 장면에서 모두 삭제합니다.</string>
+            </property>
+            <property name="styleSheet">
+             <string>font-weight: bold; background-color: #ffebee; color: #c62828;</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+       </layout>
+      </widget>
+     </item>
+
+     <!-- Spacer to push everything up in the right column -->
+     <item>
+      <spacer name="verticalSpacer">
+       <property name="orientation">
+        <enum>Qt::Vertical</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>20</width>
+         <height>40</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+    </layout>
+   </item>
+
+  </layout>
+ </widget>
+ <customwidgets>
+  <customwidget>
+   <class>qMRMLNodeComboBox</class>
+   <extends>QWidget</extends>
+   <header>qMRMLNodeComboBox.h</header>
+  </customwidget>
+  <customwidget>
+   <class>qMRMLWidget</class>
+   <extends>QWidget</extends>
+   <header>qMRMLWidget.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>ctkCollapsibleButton</class>
+   <extends>QWidget</extends>
+   <header>ctkCollapsibleButton.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>ctkSliderWidget</class>
+   <extends>QWidget</extends>
+   <header>ctkSliderWidget.h</header>
+  </customwidget>
+ </customwidgets>
+ <resources/>
+ <connections>
+  <connection>
+   <sender>FemurFracturePlanner</sender>
+   <signal>mrmlSceneChanged(vtkMRMLScene*)</signal>
+   <receiver>inputVolumeSelector</receiver>
+   <slot>setMRMLScene(vtkMRMLScene*)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>162</x>
+     <y>299</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>222</x>
+     <y>38</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>FemurFracturePlanner</sender>
+   <signal>mrmlSceneChanged(vtkMRMLScene*)</signal>
+   <receiver>activeSegmentationSelector</receiver>
+   <slot>setMRMLScene(vtkMRMLScene*)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>162</x>
+     <y>299</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>222</x>
+     <y>500</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>FemurFracturePlanner</sender>
+   <signal>mrmlSceneChanged(vtkMRMLScene*)</signal>
+   <receiver>guideModelSelector</receiver>
+   <slot>setMRMLScene(vtkMRMLScene*)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>162</x>
+     <y>299</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>222</x>
+     <y>600</y>
+    </hint>
+   </hints>
+  </connection>
+ </connections>
+</ui>
