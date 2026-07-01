@@ -1,23 +1,24 @@
 /*
 File Name: qSlicerFemurFracturePlannerCppModulePlannerDialog.cxx
-Version: v0-0.0.0
-Date: 2026-06-30
-Description: 대퇴골 골절 수술 계획을 위한 독립 팝업 다이얼로그 클래스 구현
-
-Version History:
-- v0-0.0.0 (2026-06-30)
-  - 최초 작성
-*/
-
-/*
-File Name: qSlicerFemurFracturePlannerCppModulePlannerDialog.cxx
-Version: v0-5.1.0
-Date: 2026-06-30
+Version: v0-7.0.2
+Date: 2026-07-01
 Description: 대퇴골 골절 수술 계획을 위한 독립 팝업 다이얼로그 클래스 구현 (Segment Editor 및 씬 바인딩)
 
 Version History:
+- v0-7.0.2 (2026-07-01)
+  - 내장 Segment Editor의 Add/Remove 버튼이 첫 씬 로드 시 비활성화되는 버그 수정을 위해 SegmentEditorNode에 SegmentationNode 및 SourceVolumeNode를 명시적으로 결합 (Z 증가)
+- v0-7.0.1 (2026-07-01)
+  - 다이얼로그 소멸 및 setMRMLScene(nullptr) 시 SegmentEditorNode의 씬 명시적 제거 및 Widget의 씬 연동을 끊어 VTK 메모리 누수 방지 (Z 증가)
+- v0-7.0.0 (2026-07-01)
+  - 가상 뼈 정복 연산 시 std::function 람다 콜백을 전달하여 reductionLogWidget에 실시간 진행 로그를 출력하도록 연동 (X 증가)
+- v0-6.0.2 (2026-07-01)
+  - updateFragmentTable 실행 중 노드 생성 이벤트에 의한 무한 재귀 재진입 방지 플래그 추가 및 Slicer 크래시 수정 (Z 증가)
+- v0-6.0.1 (2026-07-01)
+  - vtkSegmentation::AddEmptySegment 호출 시 const double[] 관련 컴파일 에러 수정 (Z 증가)
+- v0-6.0.0 (2026-06-30)
+  - 완전 이식 보완: 컴파일 헤더 정리, MRML 상태 저장, Scene 수명주기, 마커 생성/배치, 에지 기능 분리 (X 증가)
 - v0-5.1.0 (2026-06-30)
-  - 수동 타겟팅 매칭 슬롯을 파이쓬 원본과 일치하게 수정: 마커 노드명(마커 접미사), 소스/타겟 구조(테이블+가이드 셀렉터 기반), 자동 생성+Place 모드, 6개 자동 분할, RemoveAllControlPoints 방식 클리어 (Y 증가)
+  - 수동 타겟팅 매칭 슬롯을 Python 원본과 일치하게 수정: 마커 노드명(마커 접미사), 소스/타겟 구조(테이블+가이드 셀렉터 기반), 자동 생성+Place 모드, 6개 자동 분할, RemoveAllControlPoints 방식 클리어 (Y 증가)
 - v0-5.0.0 (2026-06-30)
   - 5단계: 골절면 정밀 스냅 및 수동/마스크 정합용 slots 구현 추가 (X 증가)
 - v0-4.0.2 (2026-06-30)
@@ -71,11 +72,20 @@ Version History:
 #include <QMainWindow>
 #include <QAction>
 #include <QTableWidget>
+#include <QTableWidgetItem>
+#include <QHeaderView>
+#include <QVariantMap>
+#include <QSignalBlocker>
+#include <QByteArray>
 #include <QCheckBox>
 #include <QDebug>
 #include <QHBoxLayout>
 #include <QColorDialog>
 #include <QMessageBox>
+#include <QPushButton>
+#include <QTime>
+#include <QCoreApplication>
+#include <QVBoxLayout>
 #include <qSlicerApplication.h>
 #include <qSlicerMainWindow.h>
 #include <qSlicerModuleSelectorToolBar.h>
@@ -90,6 +100,112 @@ Version History:
 #include <vtkPolyData.h>
 #include <vtkMRMLModelDisplayNode.h>
 #include <vtkMRMLMarkupsFiducialNode.h>
+#include <vtkMRMLMarkupsDisplayNode.h>
+#include <vtkMRMLSelectionNode.h>
+#include <vtkMRMLInteractionNode.h>
+#include <vtkMRMLScriptedModuleNode.h>
+#include <vtkMRMLSegmentationNode.h>
+#include <vtkMRMLSegmentationDisplayNode.h>
+#include <vtkSegmentation.h>
+#include <vtkSegment.h>
+#include <vtkStringArray.h>
+#include <vtkVector.h>
+
+// STD includes
+#include <algorithm>
+#include <string>
+#include <vector>
+
+namespace
+{
+constexpr const char* PARAMETER_NODE_NAME = "FemurFracturePlannerCpp_Parameters";
+constexpr const char* INPUT_VOLUME_REFERENCE = "InputVolume";
+constexpr const char* SEGMENTATION_REFERENCE = "Segmentation";
+constexpr const char* GUIDE_MODEL_REFERENCE = "GuideModel";
+constexpr const char* FRAGMENT_ROLE_ATTRIBUTE = "FemurFracturePlannerCpp.Role";
+constexpr const char* FRAGMENT_ROLE_VALUE = "Fragment";
+constexpr const char* SOURCE_MARKERS_NAME = "Targeting_Source_Markers";
+constexpr const char* TARGET_MARKERS_NAME = "Targeting_Target_Markers";
+
+bool IsFragmentModel(vtkMRMLModelNode* modelNode)
+{
+  if (!modelNode)
+  {
+    return false;
+  }
+  const char* role = modelNode->GetAttribute(FRAGMENT_ROLE_ATTRIBUTE);
+  if (role && std::string(role) == FRAGMENT_ROLE_VALUE)
+  {
+    return true;
+  }
+  const std::string name = modelNode->GetName() ? modelNode->GetName() : "";
+  return name.rfind("Femur_Fragment", 0) == 0;
+}
+
+int FragmentSortIndex(vtkMRMLModelNode* modelNode)
+{
+  if (!modelNode)
+  {
+    return 1000000;
+  }
+  const char* value = modelNode->GetAttribute("FemurFracturePlannerCpp.FragmentIndex");
+  if (value)
+  {
+    bool ok = false;
+    const int index = QString::fromUtf8(value).toInt(&ok);
+    if (ok)
+    {
+      return index;
+    }
+  }
+  const std::string name = modelNode->GetName() ? modelNode->GetName() : "";
+  const std::size_t separator = name.find_last_of('_');
+  if (separator != std::string::npos)
+  {
+    try
+    {
+      return std::stoi(name.substr(separator + 1));
+    }
+    catch (...)
+    {
+    }
+  }
+  return 1000000;
+}
+
+std::vector<vtkMRMLModelNode*> CollectFragmentModels(vtkMRMLScene* scene)
+{
+  std::vector<vtkMRMLModelNode*> fragments;
+  if (!scene)
+  {
+    return fragments;
+  }
+  std::vector<vtkMRMLNode*> modelNodes;
+  scene->GetNodesByClass("vtkMRMLModelNode", modelNodes);
+  for (vtkMRMLNode* node : modelNodes)
+  {
+    vtkMRMLModelNode* modelNode = vtkMRMLModelNode::SafeDownCast(node);
+    if (IsFragmentModel(modelNode))
+    {
+      fragments.push_back(modelNode);
+    }
+  }
+  std::stable_sort(fragments.begin(), fragments.end(),
+    [](vtkMRMLModelNode* left, vtkMRMLModelNode* right)
+    {
+      const int leftIndex = FragmentSortIndex(left);
+      const int rightIndex = FragmentSortIndex(right);
+      if (leftIndex != rightIndex)
+      {
+        return leftIndex < rightIndex;
+      }
+      const std::string leftName = left && left->GetName() ? left->GetName() : "";
+      const std::string rightName = right && right->GetName() ? right->GetName() : "";
+      return leftName < rightName;
+    });
+  return fragments;
+}
+}
 
 //-----------------------------------------------------------------------------
 class qSlicerFemurFracturePlannerCppModulePlannerDialogPrivate : public Ui::FemurFracturePlanner
@@ -99,9 +215,11 @@ public:
   qMRMLSegmentEditorWidget* SegmentEditorWidget;
   vtkMRMLSegmentEditorNode* SegmentEditorNode;
   vtkSlicerFemurFracturePlannerCppLogic* Logic;
+  vtkMRMLScriptedModuleNode* ParameterNode;
 
   vtkMRMLModelNode* ActiveModelNode;
   vtkMRMLLinearTransformNode* ActiveTransformNode;
+  bool UpdatingTable;
 };
 
 //-----------------------------------------------------------------------------
@@ -109,8 +227,10 @@ qSlicerFemurFracturePlannerCppModulePlannerDialogPrivate::qSlicerFemurFracturePl
   : SegmentEditorWidget(nullptr)
   , SegmentEditorNode(nullptr)
   , Logic(nullptr)
+  , ParameterNode(nullptr)
   , ActiveModelNode(nullptr)
   , ActiveTransformNode(nullptr)
+  , UpdatingTable(false)
 {
 }
 
@@ -212,6 +332,10 @@ qSlicerFemurFracturePlannerCppModulePlannerDialog::qSlicerFemurFracturePlannerCp
   {
     connect(d->edgeDetectionButton, SIGNAL(clicked()), this, SLOT(onEdgeDetectionClicked()));
   }
+  if (d->maskedEdgeDetectionButton)
+  {
+    connect(d->maskedEdgeDetectionButton, SIGNAL(clicked()), this, SLOT(onMaskedEdgeDetectionClicked()));
+  }
   if (d->loadVolumeButton)
   {
     connect(d->loadVolumeButton, SIGNAL(clicked()), this, SLOT(onLoadVolumeClicked()));
@@ -308,11 +432,8 @@ qSlicerFemurFracturePlannerCppModulePlannerDialog::~qSlicerFemurFracturePlannerC
     delete d->SegmentEditorWidget;
     d->SegmentEditorWidget = nullptr;
   }
-  if (d->SegmentEditorNode && this->mrmlScene())
-  {
-    this->mrmlScene()->RemoveNode(d->SegmentEditorNode);
-  }
   d->SegmentEditorNode = nullptr;
+  d->ParameterNode = nullptr;
 
   // 다이얼로그와 관련된 모든 등록된 VTK 관찰자(Observer) 일괄 강제 해제
   this->qvtkDisconnectAll();
@@ -323,102 +444,135 @@ void qSlicerFemurFracturePlannerCppModulePlannerDialog::setMRMLScene(vtkMRMLScen
 {
   Q_D(qSlicerFemurFracturePlannerCppModulePlannerDialog);
 
+  vtkMRMLScene* previousScene = this->mrmlScene();
+  this->qvtkReconnect(previousScene, scene, vtkMRMLScene::StartCloseEvent,
+    this, SLOT(onMRMLSceneStartClose()));
+  this->qvtkReconnect(previousScene, scene, vtkMRMLScene::EndCloseEvent,
+    this, SLOT(onMRMLSceneEndClose()));
+  this->qvtkReconnect(previousScene, scene, vtkMRMLScene::NodeAddedEvent,
+    this, SLOT(onMRMLSceneChanged()));
+  this->qvtkReconnect(previousScene, scene, vtkMRMLScene::NodeRemovedEvent,
+    this, SLOT(onMRMLSceneChanged()));
+  this->qvtkReconnect(previousScene, scene, vtkMRMLScene::EndBatchProcessEvent,
+    this, SLOT(onMRMLSceneChanged()));
+
   this->qMRMLWidget::setMRMLScene(scene);
 
   if (!scene)
   {
+    if (d->SegmentEditorWidget)
+    {
+      d->SegmentEditorWidget->setMRMLSegmentEditorNode(nullptr);
+      d->SegmentEditorWidget->setMRMLScene(nullptr);
+    }
+    if (previousScene && d->SegmentEditorNode)
+    {
+      previousScene->RemoveNode(d->SegmentEditorNode);
+    }
     d->SegmentEditorNode = nullptr;
+    d->ParameterNode = nullptr;
     if (d->inputVolumeSelector) d->inputVolumeSelector->setMRMLScene(nullptr);
     if (d->activeSegmentationSelector) d->activeSegmentationSelector->setMRMLScene(nullptr);
     if (d->guideModelSelector) d->guideModelSelector->setMRMLScene(nullptr);
-    if (d->SegmentEditorWidget) d->SegmentEditorWidget->setMRMLScene(nullptr);
     return;
   }
 
-  // 1. [핵심] 자식 위젯들에 씬을 뿌려 시그널이 트리거되기 전에, 에디터 전용 노드를 미리 확보하여 위젯에 등록 완료
+  // 모듈 선택 상태를 MRML Scene과 함께 저장하기 위한 상태 노드.
+  d->ParameterNode = vtkMRMLScriptedModuleNode::SafeDownCast(
+    scene->GetFirstNodeByName(PARAMETER_NODE_NAME));
+  if (!d->ParameterNode)
+  {
+    d->ParameterNode = vtkMRMLScriptedModuleNode::SafeDownCast(
+      scene->AddNewNodeByClass("vtkMRMLScriptedModuleNode"));
+    if (d->ParameterNode)
+    {
+      d->ParameterNode->SetName(PARAMETER_NODE_NAME);
+      d->ParameterNode->SetAttribute("ModuleName", "FemurFracturePlannerCpp");
+      d->ParameterNode->SetHideFromEditors(true);
+    }
+  }
+
+  d->SegmentEditorNode = vtkMRMLSegmentEditorNode::SafeDownCast(
+    scene->GetFirstNodeByName("FemurFracturePlannerCpp_SegmentEditorNode"));
+  if (!d->SegmentEditorNode)
+  {
+    // 이전 개발 버전의 노드 이름도 한 번 재사용하여 기존 Scene 호환성을 유지한다.
+    d->SegmentEditorNode = vtkMRMLSegmentEditorNode::SafeDownCast(
+      scene->GetFirstNodeByName("FemurFracturePlanner_SegmentEditorNode"));
+  }
   if (!d->SegmentEditorNode)
   {
     d->SegmentEditorNode = vtkMRMLSegmentEditorNode::SafeDownCast(
-      scene->GetFirstNodeByName("FemurFracturePlanner_SegmentEditorNode")
-    );
-    if (!d->SegmentEditorNode)
+      scene->AddNewNodeByClass("vtkMRMLSegmentEditorNode"));
+    if (d->SegmentEditorNode)
     {
-      d->SegmentEditorNode = vtkMRMLSegmentEditorNode::SafeDownCast(
-        scene->AddNewNodeByClass("vtkMRMLSegmentEditorNode")
-      );
-      if (d->SegmentEditorNode)
-      {
-        d->SegmentEditorNode->SetName("FemurFracturePlanner_SegmentEditorNode");
-      }
+      d->SegmentEditorNode->SetName("FemurFracturePlannerCpp_SegmentEditorNode");
+      d->SegmentEditorNode->SetHideFromEditors(true);
     }
   }
 
   if (d->SegmentEditorWidget)
   {
     d->SegmentEditorWidget->setMRMLScene(scene);
-    if (d->SegmentEditorNode)
+    d->SegmentEditorWidget->setMRMLSegmentEditorNode(d->SegmentEditorNode);
+  }
+
+  vtkMRMLSegmentationNode* defaultSegmentation = nullptr;
+  if (d->ParameterNode)
+  {
+    defaultSegmentation = vtkMRMLSegmentationNode::SafeDownCast(
+      d->ParameterNode->GetNodeReference(SEGMENTATION_REFERENCE));
+  }
+  if (!defaultSegmentation)
+  {
+    defaultSegmentation = vtkMRMLSegmentationNode::SafeDownCast(
+      scene->GetFirstNodeByClass("vtkMRMLSegmentationNode"));
+  }
+  if (!defaultSegmentation)
+  {
+    defaultSegmentation = vtkMRMLSegmentationNode::SafeDownCast(
+      scene->AddNewNodeByClass("vtkMRMLSegmentationNode"));
+    if (defaultSegmentation)
     {
-      d->SegmentEditorWidget->setMRMLSegmentEditorNode(d->SegmentEditorNode);
+      defaultSegmentation->SetName("Femur_Segmentation");
+      defaultSegmentation->CreateDefaultDisplayNodes();
     }
   }
 
-  // 2. 기본 세그멘테이션 노드가 없으면 미리 자동 신설하여 준비
-  vtkMRMLSegmentationNode* segNode = vtkMRMLSegmentationNode::SafeDownCast(
-    scene->GetFirstNodeByClass("vtkMRMLSegmentationNode")
-  );
-  if (!segNode)
+  if (d->inputVolumeSelector) d->inputVolumeSelector->setMRMLScene(scene);
+  if (d->activeSegmentationSelector) d->activeSegmentationSelector->setMRMLScene(scene);
+  if (d->guideModelSelector) d->guideModelSelector->setMRMLScene(scene);
+
+  if (defaultSegmentation && d->activeSegmentationSelector)
   {
-    segNode = vtkMRMLSegmentationNode::SafeDownCast(
-      scene->AddNewNodeByClass("vtkMRMLSegmentationNode")
-    );
-    if (segNode)
-    {
-      segNode->SetName("Femur_Segmentation");
-      segNode->CreateDefaultDisplayNodes();
-    }
+    d->activeSegmentationSelector->setCurrentNode(defaultSegmentation);
   }
 
-  // 3. 자식 콤보박스들에 씬 전달 (이 시점에 currentNodeChanged 시그널이 방출되더라도 안전하게 위젯이 준비됨)
-  if (d->inputVolumeSelector)
-  {
-    d->inputVolumeSelector->setMRMLScene(scene);
-  }
-  if (d->activeSegmentationSelector)
-  {
-    d->activeSegmentationSelector->setMRMLScene(scene);
-    if (segNode)
-    {
-      d->activeSegmentationSelector->setCurrentNode(segNode);
-    }
-  }
-  if (d->guideModelSelector)
-  {
-    d->guideModelSelector->setMRMLScene(scene);
-  }
+  this->restoreUiFromParameterNode();
 
-  // 4. 최종 동기화 완료 (시그널이 돌지 않았을 수 있는 기본 선택 상태 복원)
-  vtkMRMLSegmentationNode* initSeg = d->activeSegmentationSelector ?
-    vtkMRMLSegmentationNode::SafeDownCast(d->activeSegmentationSelector->currentNode()) : nullptr;
-  vtkMRMLScalarVolumeNode* initVol = d->inputVolumeSelector ?
-    vtkMRMLScalarVolumeNode::SafeDownCast(d->inputVolumeSelector->currentNode()) : nullptr;
+  vtkMRMLSegmentationNode* activeSegmentation = d->activeSegmentationSelector
+    ? vtkMRMLSegmentationNode::SafeDownCast(d->activeSegmentationSelector->currentNode()) : nullptr;
+  vtkMRMLScalarVolumeNode* inputVolume = d->inputVolumeSelector
+    ? vtkMRMLScalarVolumeNode::SafeDownCast(d->inputVolumeSelector->currentNode()) : nullptr;
 
   if (d->SegmentEditorWidget)
   {
-    if (initSeg)
+    if (d->SegmentEditorNode)
     {
-      d->SegmentEditorWidget->setSegmentationNode(initSeg);
+      d->SegmentEditorNode->SetAndObserveSegmentationNode(activeSegmentation);
+      d->SegmentEditorNode->SetAndObserveSourceVolumeNode(inputVolume);
     }
-    if (initVol)
-    {
-      d->SegmentEditorWidget->setSourceVolumeNode(initVol);
-    }
-
-    if (initSeg && initVol)
-    {
-      initSeg->SetReferenceImageGeometryParameterFromVolumeNode(initVol);
-      initSeg->Modified();
-    }
+    d->SegmentEditorWidget->setSegmentationNode(activeSegmentation);
+    d->SegmentEditorWidget->setSourceVolumeNode(inputVolume);
   }
+  if (activeSegmentation && inputVolume)
+  {
+    activeSegmentation->SetReferenceImageGeometryParameterFromVolumeNode(inputVolume);
+    activeSegmentation->Modified();
+  }
+
+  this->updateFragmentTable();
+  this->updateParameterNodeFromUi();
 }
 
 //-----------------------------------------------------------------------------
@@ -436,16 +590,221 @@ void qSlicerFemurFracturePlannerCppModulePlannerDialog::setLogic(vtkSlicerFemurF
 }
 
 //-----------------------------------------------------------------------------
+vtkMRMLModelNode* qSlicerFemurFracturePlannerCppModulePlannerDialog::selectedFragmentNode()
+{
+  Q_D(qSlicerFemurFracturePlannerCppModulePlannerDialog);
+  if (!this->mrmlScene() || !d->fragmentTableWidget)
+  {
+    return nullptr;
+  }
+
+  const int selectedRow = d->fragmentTableWidget->currentRow();
+  QTableWidgetItem* nameItem = selectedRow >= 0
+    ? d->fragmentTableWidget->item(selectedRow, 0) : nullptr;
+  if (!nameItem)
+  {
+    return nullptr;
+  }
+
+  const QString nodeId = nameItem->data(Qt::UserRole).toString();
+  return nodeId.isEmpty() ? nullptr : vtkMRMLModelNode::SafeDownCast(
+    this->mrmlScene()->GetNodeByID(nodeId.toUtf8().constData()));
+}
+
+//-----------------------------------------------------------------------------
+void qSlicerFemurFracturePlannerCppModulePlannerDialog::updateParameterNodeFromUi()
+{
+  Q_D(qSlicerFemurFracturePlannerCppModulePlannerDialog);
+  if (!d->ParameterNode)
+  {
+    return;
+  }
+
+  vtkMRMLNode* inputVolume = d->inputVolumeSelector ? d->inputVolumeSelector->currentNode() : nullptr;
+  vtkMRMLNode* segmentation = d->activeSegmentationSelector ? d->activeSegmentationSelector->currentNode() : nullptr;
+  vtkMRMLNode* guideModel = d->guideModelSelector ? d->guideModelSelector->currentNode() : nullptr;
+  d->ParameterNode->SetNodeReferenceID(INPUT_VOLUME_REFERENCE, inputVolume ? inputVolume->GetID() : nullptr);
+  d->ParameterNode->SetNodeReferenceID(SEGMENTATION_REFERENCE, segmentation ? segmentation->GetID() : nullptr);
+  d->ParameterNode->SetNodeReferenceID(GUIDE_MODEL_REFERENCE, guideModel ? guideModel->GetID() : nullptr);
+
+  if (d->thresholdSlider)
+  {
+    const QByteArray value = QByteArray::number(d->thresholdSlider->value(), 'g', 16);
+    d->ParameterNode->SetAttribute("Threshold", value.constData());
+  }
+  if (d->rotationAngleSlider)
+  {
+    const QByteArray value = QByteArray::number(d->rotationAngleSlider->value(), 'g', 16);
+    d->ParameterNode->SetAttribute("RotationAngle", value.constData());
+  }
+
+  const char* axis = d->rotationXRadio && d->rotationXRadio->isChecked() ? "X" :
+    (d->rotationYRadio && d->rotationYRadio->isChecked() ? "Y" : "Z");
+  d->ParameterNode->SetAttribute("RotationAxis", axis);
+  d->ParameterNode->SetAttribute("VolumeVisible",
+    d->volumeVisibilityButton && d->volumeVisibilityButton->isChecked() ? "1" : "0");
+  d->ParameterNode->SetAttribute("VolumeRenderingVisible",
+    d->volumeRenderingVisibilityButton && d->volumeRenderingVisibilityButton->isChecked() ? "1" : "0");
+  d->ParameterNode->SetAttribute("GuideVisible",
+    d->guideVisibilityButton && d->guideVisibilityButton->isChecked() ? "1" : "0");
+  d->ParameterNode->Modified();
+}
+
+//-----------------------------------------------------------------------------
+void qSlicerFemurFracturePlannerCppModulePlannerDialog::restoreUiFromParameterNode()
+{
+  Q_D(qSlicerFemurFracturePlannerCppModulePlannerDialog);
+  if (!d->ParameterNode)
+  {
+    return;
+  }
+
+  if (d->inputVolumeSelector)
+  {
+    QSignalBlocker blocker(d->inputVolumeSelector);
+    d->inputVolumeSelector->setCurrentNode(
+      d->ParameterNode->GetNodeReference(INPUT_VOLUME_REFERENCE));
+  }
+  if (d->activeSegmentationSelector)
+  {
+    vtkMRMLNode* savedSegmentation = d->ParameterNode->GetNodeReference(SEGMENTATION_REFERENCE);
+    if (savedSegmentation)
+    {
+      QSignalBlocker blocker(d->activeSegmentationSelector);
+      d->activeSegmentationSelector->setCurrentNode(savedSegmentation);
+    }
+  }
+  if (d->guideModelSelector)
+  {
+    QSignalBlocker blocker(d->guideModelSelector);
+    d->guideModelSelector->setCurrentNode(
+      d->ParameterNode->GetNodeReference(GUIDE_MODEL_REFERENCE));
+  }
+
+  if (d->thresholdSlider)
+  {
+    if (const char* value = d->ParameterNode->GetAttribute("Threshold"))
+    {
+      QSignalBlocker blocker(d->thresholdSlider);
+      d->thresholdSlider->setValue(QString::fromUtf8(value).toDouble());
+    }
+  }
+  if (d->rotationAngleSlider)
+  {
+    if (const char* value = d->ParameterNode->GetAttribute("RotationAngle"))
+    {
+      QSignalBlocker blocker(d->rotationAngleSlider);
+      d->rotationAngleSlider->setValue(QString::fromUtf8(value).toDouble());
+    }
+  }
+
+  const QString axis = QString::fromUtf8(
+    d->ParameterNode->GetAttribute("RotationAxis") ?
+    d->ParameterNode->GetAttribute("RotationAxis") : "X");
+  if (d->rotationXRadio && d->rotationYRadio && d->rotationZRadio)
+  {
+    QSignalBlocker blockX(d->rotationXRadio);
+    QSignalBlocker blockY(d->rotationYRadio);
+    QSignalBlocker blockZ(d->rotationZRadio);
+    d->rotationXRadio->setChecked(axis == "X");
+    d->rotationYRadio->setChecked(axis == "Y");
+    d->rotationZRadio->setChecked(axis == "Z");
+  }
+
+  vtkMRMLScriptedModuleNode* parameterNode = d->ParameterNode;
+  auto restoreChecked = [parameterNode](QPushButton* button, const char* attributeName)
+  {
+    if (!button || !parameterNode)
+    {
+      return;
+    }
+    const char* value = parameterNode->GetAttribute(attributeName);
+    if (value)
+    {
+      QSignalBlocker blocker(button);
+      button->setChecked(QString::fromUtf8(value) == "1");
+    }
+  };
+  restoreChecked(d->volumeVisibilityButton, "VolumeVisible");
+  restoreChecked(d->volumeRenderingVisibilityButton, "VolumeRenderingVisible");
+  restoreChecked(d->guideVisibilityButton, "GuideVisible");
+}
+
+//-----------------------------------------------------------------------------
+void qSlicerFemurFracturePlannerCppModulePlannerDialog::onMRMLSceneStartClose()
+{
+  Q_D(qSlicerFemurFracturePlannerCppModulePlannerDialog);
+  if (d->ActiveTransformNode)
+  {
+    this->qvtkDisconnect(d->ActiveTransformNode, vtkCommand::ModifiedEvent,
+      this, SLOT(onActiveTransformNodeModified()));
+  }
+  d->ActiveTransformNode = nullptr;
+  d->ActiveModelNode = nullptr;
+  d->SegmentEditorNode = nullptr;
+  d->ParameterNode = nullptr;
+
+  if (d->SegmentEditorWidget)
+  {
+    d->SegmentEditorWidget->setSegmentationNode(nullptr);
+    d->SegmentEditorWidget->setSourceVolumeNode(nullptr);
+    d->SegmentEditorWidget->setMRMLSegmentEditorNode(nullptr);
+  }
+  if (d->fragmentTableWidget)
+  {
+    d->fragmentTableWidget->clearContents();
+    d->fragmentTableWidget->setRowCount(0);
+  }
+}
+
+//-----------------------------------------------------------------------------
+void qSlicerFemurFracturePlannerCppModulePlannerDialog::onMRMLSceneEndClose()
+{
+  vtkMRMLScene* scene = this->mrmlScene();
+  if (scene)
+  {
+    this->setMRMLScene(scene);
+  }
+}
+
+//-----------------------------------------------------------------------------
+void qSlicerFemurFracturePlannerCppModulePlannerDialog::onMRMLSceneChanged()
+{
+  Q_D(qSlicerFemurFracturePlannerCppModulePlannerDialog);
+  if (!this->mrmlScene() || this->mrmlScene()->IsBatchProcessing())
+  {
+    return;
+  }
+  if (d->ParameterNode && d->ParameterNode->GetScene() != this->mrmlScene())
+  {
+    d->ParameterNode = nullptr;
+  }
+  if (d->SegmentEditorNode && d->SegmentEditorNode->GetScene() != this->mrmlScene())
+  {
+    d->SegmentEditorNode = nullptr;
+  }
+  this->updateFragmentTable();
+}
+
+//-----------------------------------------------------------------------------
 void qSlicerFemurFracturePlannerCppModulePlannerDialog::onVolumeRenderingToggled(bool checked)
 {
   Q_D(qSlicerFemurFracturePlannerCppModulePlannerDialog);
+  this->updateParameterNodeFromUi();
   if (!d->Logic || !d->inputVolumeSelector || !d->thresholdSlider)
   {
     return;
   }
-  vtkMRMLScalarVolumeNode* inputNode = vtkMRMLScalarVolumeNode::SafeDownCast(d->inputVolumeSelector->currentNode());
+  vtkMRMLScalarVolumeNode* inputNode = vtkMRMLScalarVolumeNode::SafeDownCast(
+    d->inputVolumeSelector->currentNode());
   if (!inputNode)
   {
+    if (checked && d->volumeRenderingVisibilityButton)
+    {
+      QSignalBlocker blocker(d->volumeRenderingVisibilityButton);
+      d->volumeRenderingVisibilityButton->setChecked(false);
+      this->updateParameterNodeFromUi();
+    }
     return;
   }
   if (checked)
@@ -462,11 +821,13 @@ void qSlicerFemurFracturePlannerCppModulePlannerDialog::onVolumeRenderingToggled
 void qSlicerFemurFracturePlannerCppModulePlannerDialog::onThresholdChanged(double value)
 {
   Q_D(qSlicerFemurFracturePlannerCppModulePlannerDialog);
+  this->updateParameterNodeFromUi();
   if (!d->Logic || !d->inputVolumeSelector || !d->volumeRenderingVisibilityButton)
   {
     return;
   }
-  vtkMRMLScalarVolumeNode* inputNode = vtkMRMLScalarVolumeNode::SafeDownCast(d->inputVolumeSelector->currentNode());
+  vtkMRMLScalarVolumeNode* inputNode = vtkMRMLScalarVolumeNode::SafeDownCast(
+    d->inputVolumeSelector->currentNode());
   if (inputNode && d->volumeRenderingVisibilityButton->isChecked())
   {
     d->Logic->AdjustVolumeRenderingThreshold(inputNode, value);
@@ -477,12 +838,15 @@ void qSlicerFemurFracturePlannerCppModulePlannerDialog::onThresholdChanged(doubl
 void qSlicerFemurFracturePlannerCppModulePlannerDialog::onRotationAngleChanged(double angle)
 {
   Q_D(qSlicerFemurFracturePlannerCppModulePlannerDialog);
+  this->updateParameterNodeFromUi();
   if (!d->Logic || !d->inputVolumeSelector || !d->guideModelSelector)
   {
     return;
   }
-  vtkMRMLScalarVolumeNode* inputNode = vtkMRMLScalarVolumeNode::SafeDownCast(d->inputVolumeSelector->currentNode());
-  vtkMRMLModelNode* guideNode = vtkMRMLModelNode::SafeDownCast(d->guideModelSelector->currentNode());
+  vtkMRMLScalarVolumeNode* inputNode = vtkMRMLScalarVolumeNode::SafeDownCast(
+    d->inputVolumeSelector->currentNode());
+  vtkMRMLModelNode* guideNode = vtkMRMLModelNode::SafeDownCast(
+    d->guideModelSelector->currentNode());
 
   const char* axis = "Z";
   if (d->rotationXRadio && d->rotationXRadio->isChecked())
@@ -494,13 +858,17 @@ void qSlicerFemurFracturePlannerCppModulePlannerDialog::onRotationAngleChanged(d
     axis = "Y";
   }
 
-  d->Logic->RotateVolume(inputNode, axis, angle, guideNode);
+  if (inputNode || guideNode)
+  {
+    d->Logic->RotateVolume(inputNode, axis, angle, guideNode);
+  }
 }
 
 //-----------------------------------------------------------------------------
 void qSlicerFemurFracturePlannerCppModulePlannerDialog::onRotationAxisChanged()
 {
   Q_D(qSlicerFemurFracturePlannerCppModulePlannerDialog);
+  this->updateParameterNodeFromUi();
   if (d->rotationAngleSlider)
   {
     this->onRotationAngleChanged(d->rotationAngleSlider->value());
@@ -545,16 +913,18 @@ void qSlicerFemurFracturePlannerCppModulePlannerDialog::onInvertIntensityClicked
 void qSlicerFemurFracturePlannerCppModulePlannerDialog::onEdgeDetectionClicked()
 {
   Q_D(qSlicerFemurFracturePlannerCppModulePlannerDialog);
-  if (!d->Logic || !d->inputVolumeSelector || !d->thresholdSlider)
+  if (!d->Logic || !d->inputVolumeSelector)
   {
     return;
   }
-  vtkMRMLScalarVolumeNode* inputNode = vtkMRMLScalarVolumeNode::SafeDownCast(d->inputVolumeSelector->currentNode());
+  vtkMRMLScalarVolumeNode* inputNode = vtkMRMLScalarVolumeNode::SafeDownCast(
+    d->inputVolumeSelector->currentNode());
   if (!inputNode)
   {
+    QMessageBox::warning(this, "경고", "에지 검출을 수행할 입력 볼륨을 선택하세요.");
     return;
   }
-  vtkMRMLScalarVolumeNode* edgeNode = d->Logic->DetectVolumeEdgesMasked(inputNode, d->thresholdSlider->value());
+  vtkMRMLScalarVolumeNode* edgeNode = d->Logic->DetectVolumeEdges(inputNode);
   if (edgeNode)
   {
     d->inputVolumeSelector->setCurrentNode(edgeNode);
@@ -562,6 +932,41 @@ void qSlicerFemurFracturePlannerCppModulePlannerDialog::onEdgeDetectionClicked()
     {
       d->volumeVisibilityButton->setChecked(true);
     }
+  }
+  else
+  {
+    QMessageBox::critical(this, "오류", "일반 3D 에지 검출에 실패했습니다.");
+  }
+}
+
+//-----------------------------------------------------------------------------
+void qSlicerFemurFracturePlannerCppModulePlannerDialog::onMaskedEdgeDetectionClicked()
+{
+  Q_D(qSlicerFemurFracturePlannerCppModulePlannerDialog);
+  if (!d->Logic || !d->inputVolumeSelector || !d->thresholdSlider)
+  {
+    return;
+  }
+  vtkMRMLScalarVolumeNode* inputNode = vtkMRMLScalarVolumeNode::SafeDownCast(
+    d->inputVolumeSelector->currentNode());
+  if (!inputNode)
+  {
+    QMessageBox::warning(this, "경고", "마스킹 에지 검출을 수행할 입력 볼륨을 선택하세요.");
+    return;
+  }
+  vtkMRMLScalarVolumeNode* edgeNode = d->Logic->DetectVolumeEdgesMasked(
+    inputNode, d->thresholdSlider->value());
+  if (edgeNode)
+  {
+    d->inputVolumeSelector->setCurrentNode(edgeNode);
+    if (d->volumeVisibilityButton)
+    {
+      d->volumeVisibilityButton->setChecked(true);
+    }
+  }
+  else
+  {
+    QMessageBox::critical(this, "오류", "임계값 마스킹 3D 에지 검출에 실패했습니다.");
   }
 }
 
@@ -691,28 +1096,24 @@ void qSlicerFemurFracturePlannerCppModulePlannerDialog::onVolumeVisibilityToggle
   {
     return;
   }
-  vtkMRMLScalarVolumeNode* inputNode = vtkMRMLScalarVolumeNode::SafeDownCast(d->inputVolumeSelector->currentNode());
+  vtkMRMLScalarVolumeNode* inputNode = vtkMRMLScalarVolumeNode::SafeDownCast(
+    d->inputVolumeSelector->currentNode());
   if (!inputNode)
   {
     if (checked)
     {
+      QSignalBlocker blocker(d->volumeVisibilityButton);
       d->volumeVisibilityButton->setChecked(false);
     }
+    this->updateParameterNodeFromUi();
     return;
   }
 
   d->Logic->SetVolumeVisibility(inputNode, checked);
-
-  if (checked)
-  {
-    d->volumeVisibilityButton->setText("숨기기");
-    d->volumeVisibilityButton->setToolTip("뷰어에서 볼륨을 숨깁니다.");
-  }
-  else
-  {
-    d->volumeVisibilityButton->setText("보기");
-    d->volumeVisibilityButton->setToolTip("뷰어에서 볼륨을 표시합니다.");
-  }
+  d->volumeVisibilityButton->setText(checked ? "숨기기" : "보기");
+  d->volumeVisibilityButton->setToolTip(
+    checked ? "뷰어에서 볼륨을 숨깁니다." : "뷰어에서 볼륨을 표시합니다.");
+  this->updateParameterNodeFromUi();
 }
 
 //-----------------------------------------------------------------------------
@@ -720,30 +1121,16 @@ void qSlicerFemurFracturePlannerCppModulePlannerDialog::onInputVolumeChanged(vtk
 {
   Q_D(qSlicerFemurFracturePlannerCppModulePlannerDialog);
   qDebug() << "onInputVolumeChanged called, Node:" << (node ? node->GetName() : "nullptr");
-  if (!node || !d->volumeVisibilityButton)
-  {
-    return;
-  }
 
   vtkMRMLScalarVolumeNode* volumeNode = vtkMRMLScalarVolumeNode::SafeDownCast(node);
-
-  vtkMRMLSegmentationNode* segNode = nullptr;
-  if (d->activeSegmentationSelector)
-  {
-    segNode = vtkMRMLSegmentationNode::SafeDownCast(
-      d->activeSegmentationSelector->currentNode()
-    );
-  }
+  vtkMRMLSegmentationNode* segNode = d->activeSegmentationSelector
+    ? vtkMRMLSegmentationNode::SafeDownCast(d->activeSegmentationSelector->currentNode()) : nullptr;
 
   if (d->SegmentEditorWidget)
   {
-    if (segNode)
-    {
-      d->SegmentEditorWidget->setSegmentationNode(segNode);
-    }
+    d->SegmentEditorWidget->setSegmentationNode(segNode);
     d->SegmentEditorWidget->setSourceVolumeNode(volumeNode);
   }
-
   if (segNode && volumeNode)
   {
     segNode->SetReferenceImageGeometryParameterFromVolumeNode(volumeNode);
@@ -752,24 +1139,31 @@ void qSlicerFemurFracturePlannerCppModulePlannerDialog::onInputVolumeChanged(vtk
 
   if (d->rotationAngleSlider)
   {
-    d->rotationAngleSlider->blockSignals(true);
+    QSignalBlocker blocker(d->rotationAngleSlider);
     d->rotationAngleSlider->setValue(0.0);
-    d->rotationAngleSlider->blockSignals(false);
   }
 
-  // 볼륨 변경 시 "보기" 기능이 이미 활성화되어 있으면 즉각 새 볼륨을 slice viewer에 설정하고,
-  // 비활성화 상태라면 setChecked(true)를 트리거하여 자동으로 보이게 함
-  if (d->volumeVisibilityButton->isChecked())
+  if (d->volumeVisibilityButton)
   {
-    if (d->Logic && volumeNode)
+    if (!volumeNode)
     {
-      d->Logic->SetVolumeVisibility(volumeNode, true);
+      QSignalBlocker blocker(d->volumeVisibilityButton);
+      d->volumeVisibilityButton->setChecked(false);
+      d->volumeVisibilityButton->setText("보기");
+    }
+    else if (d->volumeVisibilityButton->isChecked())
+    {
+      if (d->Logic)
+      {
+        d->Logic->SetVolumeVisibility(volumeNode, true);
+      }
+    }
+    else
+    {
+      d->volumeVisibilityButton->setChecked(true);
     }
   }
-  else
-  {
-    d->volumeVisibilityButton->setChecked(true);
-  }
+  this->updateParameterNodeFromUi();
 }
 
 //-----------------------------------------------------------------------------
@@ -859,8 +1253,9 @@ void qSlicerFemurFracturePlannerCppModulePlannerDialog::onClearModelsClicked()
   this->mrmlScene()->GetNodesByClass("vtkMRMLModelNode", allModelNodes);
   for (vtkMRMLNode* node : allModelNodes)
   {
+    vtkMRMLModelNode* modelNode = vtkMRMLModelNode::SafeDownCast(node);
     std::string nodeName = node->GetName() ? node->GetName() : "";
-    if (nodeName.rfind("Femur_Fragment", 0) == 0 || (nodeName.length() > 9 && nodeName.substr(nodeName.length() - 9) == "_Mirrored"))
+    if (IsFragmentModel(modelNode) || (nodeName.length() > 9 && nodeName.substr(nodeName.length() - 9) == "_Mirrored"))
     {
       if (std::find(nodesToDelete.begin(), nodesToDelete.end(), node) == nodesToDelete.end())
       {
@@ -951,6 +1346,11 @@ void qSlicerFemurFracturePlannerCppModulePlannerDialog::updateFragmentTable()
   {
     return;
   }
+  if (d->UpdatingTable)
+  {
+    return;
+  }
+  d->UpdatingTable = true;
 
   d->fragmentTableWidget->blockSignals(true);
   d->fragmentTableWidget->clear();
@@ -965,24 +1365,22 @@ void qSlicerFemurFracturePlannerCppModulePlannerDialog::updateFragmentTable()
   header->setSectionResizeMode(3, QHeaderView::ResizeToContents);
   header->setSectionResizeMode(4, QHeaderView::ResizeToContents);
 
-  std::vector<vtkMRMLNode*> fragmentNodes;
-  std::vector<vtkMRMLNode*> allModelNodes;
-  this->mrmlScene()->GetNodesByClass("vtkMRMLModelNode", allModelNodes);
-  for (vtkMRMLNode* node : allModelNodes)
-  {
-    std::string name = node->GetName() ? node->GetName() : "";
-    if (name.rfind("Femur_Fragment", 0) == 0)
-    {
-      fragmentNodes.push_back(node);
-    }
-  }
+  const QString selectedNodeId = d->ActiveModelNode && d->ActiveModelNode->GetID()
+    ? QString::fromUtf8(d->ActiveModelNode->GetID()) : QString();
+  std::vector<vtkMRMLModelNode*> fragmentNodes = CollectFragmentModels(this->mrmlScene());
 
   d->fragmentTableWidget->setRowCount(static_cast<int>(fragmentNodes.size()));
 
+  int rowToRestore = -1;
   for (size_t row = 0; row < fragmentNodes.size(); ++row)
   {
-    vtkMRMLModelNode* node = vtkMRMLModelNode::SafeDownCast(fragmentNodes[row]);
+    vtkMRMLModelNode* node = fragmentNodes[row];
     if (!node) continue;
+    if (!selectedNodeId.isEmpty() && node->GetID()
+        && selectedNodeId == QString::fromUtf8(node->GetID()))
+    {
+      rowToRestore = static_cast<int>(row);
+    }
 
     QTableWidgetItem* nameItem = new QTableWidgetItem(node->GetName());
     nameItem->setData(Qt::UserRole, QString(node->GetID()));
@@ -1007,13 +1405,19 @@ void qSlicerFemurFracturePlannerCppModulePlannerDialog::updateFragmentTable()
     vtkMRMLTransformNode* transformNode = node->GetParentTransformNode();
     if (!transformNode || !transformNode->IsA("vtkMRMLLinearTransformNode"))
     {
+      vtkMRMLTransformNode* originalParent = transformNode;
       vtkMRMLLinearTransformNode* newTrans = vtkMRMLLinearTransformNode::SafeDownCast(
         this->mrmlScene()->AddNewNodeByClass("vtkMRMLLinearTransformNode")
       );
       if (newTrans)
       {
-        std::string tName = std::string(node->GetName()) + "_Transform";
+        const std::string tName = std::string(node->GetName() ? node->GetName() : "Fragment")
+          + "_Transform";
         newTrans->SetName(tName.c_str());
+        if (originalParent)
+        {
+          newTrans->SetAndObserveTransformNodeID(originalParent->GetID());
+        }
         node->SetAndObserveTransformNodeID(newTrans->GetID());
         transformNode = newTrans;
       }
@@ -1081,7 +1485,12 @@ void qSlicerFemurFracturePlannerCppModulePlannerDialog::updateFragmentTable()
     d->fragmentTableWidget->setCellWidget(static_cast<int>(row), 4, deleteContainer);
   }
 
+  if (rowToRestore >= 0)
+  {
+    d->fragmentTableWidget->selectRow(rowToRestore);
+  }
   d->fragmentTableWidget->blockSignals(false);
+  d->UpdatingTable = false;
 }
 
 //-----------------------------------------------------------------------------
@@ -1370,6 +1779,7 @@ void qSlicerFemurFracturePlannerCppModulePlannerDialog::onSegmentationNodeChange
   qDebug() << "onSegmentationNodeChanged called, Node:" << (node ? node->GetName() : "nullptr");
   if (!d->SegmentEditorWidget)
   {
+    this->updateParameterNodeFromUi();
     return;
   }
 
@@ -1379,29 +1789,22 @@ void qSlicerFemurFracturePlannerCppModulePlannerDialog::onSegmentationNodeChange
   }
 
   vtkMRMLSegmentationNode* segNode = vtkMRMLSegmentationNode::SafeDownCast(node);
+  vtkMRMLScalarVolumeNode* volumeNode = d->inputVolumeSelector
+    ? vtkMRMLScalarVolumeNode::SafeDownCast(d->inputVolumeSelector->currentNode()) : nullptr;
 
-  vtkMRMLScalarVolumeNode* volumeNode = nullptr;
-  if (d->inputVolumeSelector)
+  if (d->SegmentEditorNode)
   {
-    volumeNode = vtkMRMLScalarVolumeNode::SafeDownCast(
-      d->inputVolumeSelector->currentNode()
-    );
+    d->SegmentEditorNode->SetAndObserveSegmentationNode(segNode);
+    d->SegmentEditorNode->SetAndObserveSourceVolumeNode(volumeNode);
   }
-
-  if (segNode)
-  {
-    d->SegmentEditorWidget->setSegmentationNode(segNode);
-  }
-  if (volumeNode)
-  {
-    d->SegmentEditorWidget->setSourceVolumeNode(volumeNode);
-  }
-
+  d->SegmentEditorWidget->setSegmentationNode(segNode);
+  d->SegmentEditorWidget->setSourceVolumeNode(volumeNode);
   if (segNode && volumeNode)
   {
     segNode->SetReferenceImageGeometryParameterFromVolumeNode(volumeNode);
     segNode->Modified();
   }
+  this->updateParameterNodeFromUi();
 }
 
 //-----------------------------------------------------------------------------
@@ -1429,14 +1832,10 @@ void qSlicerFemurFracturePlannerCppModulePlannerDialog::onGuideModelChanged(vtkM
 
   if (d->guideVisibilityButton)
   {
-    bool visible = false;
-    if (guideNode && guideNode->GetDisplayNode())
-    {
-      visible = guideNode->GetDisplayNode()->GetVisibility() != 0;
-    }
-    d->guideVisibilityButton->blockSignals(true);
+    const bool visible = guideNode && guideNode->GetDisplayNode()
+      && guideNode->GetDisplayNode()->GetVisibility() != 0;
+    QSignalBlocker blocker(d->guideVisibilityButton);
     d->guideVisibilityButton->setChecked(visible);
-    d->guideVisibilityButton->blockSignals(false);
   }
 
   if (d->guideInteractionButton)
@@ -1444,33 +1843,36 @@ void qSlicerFemurFracturePlannerCppModulePlannerDialog::onGuideModelChanged(vtkM
     bool interaction = false;
     if (guideNode)
     {
-      vtkMRMLTransformNode* tNode = guideNode->GetParentTransformNode();
-      if (tNode && tNode->IsA("vtkMRMLLinearTransformNode"))
-      {
-        interaction = tNode->GetDisplayNode() && tNode->GetDisplayNode()->GetVisibility() != 0;
-      }
+      vtkMRMLTransformNode* transformNode = guideNode->GetParentTransformNode();
+      vtkMRMLTransformDisplayNode* displayNode = transformNode
+        ? vtkMRMLTransformDisplayNode::SafeDownCast(transformNode->GetDisplayNode()) : nullptr;
+      interaction = displayNode && displayNode->GetEditorVisibility() != 0;
     }
-    d->guideInteractionButton->blockSignals(true);
+    QSignalBlocker blocker(d->guideInteractionButton);
     d->guideInteractionButton->setChecked(interaction);
-    d->guideInteractionButton->blockSignals(false);
   }
+  this->updateParameterNodeFromUi();
 }
 
 //-----------------------------------------------------------------------------
 void qSlicerFemurFracturePlannerCppModulePlannerDialog::onGuideVisibilityToggled(bool checked)
 {
   Q_D(qSlicerFemurFracturePlannerCppModulePlannerDialog);
-  if (!d->guideModelSelector) return;
+  if (!d->guideModelSelector)
+  {
+    return;
+  }
 
-  vtkMRMLModelNode* guideNode = vtkMRMLModelNode::SafeDownCast(d->guideModelSelector->currentNode());
+  vtkMRMLModelNode* guideNode = vtkMRMLModelNode::SafeDownCast(
+    d->guideModelSelector->currentNode());
   if (!guideNode)
   {
     if (d->guideVisibilityButton)
     {
-      d->guideVisibilityButton->blockSignals(true);
+      QSignalBlocker blocker(d->guideVisibilityButton);
       d->guideVisibilityButton->setChecked(false);
-      d->guideVisibilityButton->blockSignals(false);
     }
+    this->updateParameterNodeFromUi();
     return;
   }
 
@@ -1479,61 +1881,58 @@ void qSlicerFemurFracturePlannerCppModulePlannerDialog::onGuideVisibilityToggled
   {
     guideNode->GetDisplayNode()->SetVisibility(checked ? 1 : 0);
   }
+  this->updateParameterNodeFromUi();
 }
 
 //-----------------------------------------------------------------------------
 void qSlicerFemurFracturePlannerCppModulePlannerDialog::onGuideInteractionToggled(bool checked)
 {
   Q_D(qSlicerFemurFracturePlannerCppModulePlannerDialog);
-  if (!d->guideModelSelector || !this->mrmlScene()) return;
+  if (!d->guideModelSelector || !this->mrmlScene())
+  {
+    return;
+  }
 
-  vtkMRMLModelNode* guideNode = vtkMRMLModelNode::SafeDownCast(d->guideModelSelector->currentNode());
+  vtkMRMLModelNode* guideNode = vtkMRMLModelNode::SafeDownCast(
+    d->guideModelSelector->currentNode());
   if (!guideNode)
   {
     if (d->guideInteractionButton)
     {
-      d->guideInteractionButton->blockSignals(true);
+      QSignalBlocker blocker(d->guideInteractionButton);
       d->guideInteractionButton->setChecked(false);
-      d->guideInteractionButton->blockSignals(false);
     }
     return;
   }
 
   vtkMRMLTransformNode* transformNode = guideNode->GetParentTransformNode();
-  if (checked)
+  if (checked && (!transformNode || !transformNode->IsA("vtkMRMLLinearTransformNode")))
   {
-    if (!transformNode || !transformNode->IsA("vtkMRMLLinearTransformNode"))
+    vtkMRMLTransformNode* originalParent = transformNode;
+    vtkMRMLLinearTransformNode* newTransform = vtkMRMLLinearTransformNode::SafeDownCast(
+      this->mrmlScene()->AddNewNodeByClass("vtkMRMLLinearTransformNode"));
+    if (newTransform)
     {
-      vtkMRMLLinearTransformNode* newTrans = vtkMRMLLinearTransformNode::SafeDownCast(
-        this->mrmlScene()->AddNewNodeByClass("vtkMRMLLinearTransformNode")
-      );
-      if (newTrans)
+      const std::string name = std::string(guideNode->GetName() ? guideNode->GetName() : "Guide")
+        + "_Transform";
+      newTransform->SetName(name.c_str());
+      if (originalParent)
       {
-        std::string tName = std::string(guideNode->GetName() ? guideNode->GetName() : "Guide") + "_Transform";
-        newTrans->SetName(tName.c_str());
-        guideNode->SetAndObserveTransformNodeID(newTrans->GetID());
-        transformNode = newTrans;
+        newTransform->SetAndObserveTransformNodeID(originalParent->GetID());
       }
-    }
-    if (transformNode)
-    {
-      transformNode->CreateDefaultDisplayNodes();
-      vtkMRMLTransformDisplayNode* disp = vtkMRMLTransformDisplayNode::SafeDownCast(transformNode->GetDisplayNode());
-      if (disp)
-      {
-        disp->SetEditorVisibility(1);
-      }
+      guideNode->SetAndObserveTransformNodeID(newTransform->GetID());
+      transformNode = newTransform;
     }
   }
-  else
+
+  if (transformNode)
   {
-    if (transformNode)
+    transformNode->CreateDefaultDisplayNodes();
+    vtkMRMLTransformDisplayNode* displayNode = vtkMRMLTransformDisplayNode::SafeDownCast(
+      transformNode->GetDisplayNode());
+    if (displayNode)
     {
-      vtkMRMLTransformDisplayNode* disp = vtkMRMLTransformDisplayNode::SafeDownCast(transformNode->GetDisplayNode());
-      if (disp)
-      {
-        disp->SetEditorVisibility(0);
-      }
+      displayNode->SetEditorVisibility(checked ? 1 : 0);
     }
   }
 }
@@ -1566,48 +1965,53 @@ void qSlicerFemurFracturePlannerCppModulePlannerDialog::onMirrorGuideClicked()
 void qSlicerFemurFracturePlannerCppModulePlannerDialog::onRunIcpReductionClicked()
 {
   Q_D(qSlicerFemurFracturePlannerCppModulePlannerDialog);
-  if (!d->Logic || !d->guideModelSelector || !this->mrmlScene()) return;
+  if (!d->Logic || !d->guideModelSelector || !this->mrmlScene())
+  {
+    return;
+  }
 
-  vtkMRMLModelNode* guideNode = vtkMRMLModelNode::SafeDownCast(d->guideModelSelector->currentNode());
+  vtkMRMLModelNode* guideNode = vtkMRMLModelNode::SafeDownCast(
+    d->guideModelSelector->currentNode());
   if (!guideNode)
   {
     QMessageBox::warning(this, "경고", "자동 정합의 기준이 될 가이드 모델을 먼저 선택하세요.");
     return;
   }
 
-  std::vector<vtkMRMLModelNode*> fragmentNodes;
-  std::vector<vtkMRMLNode*> modelNodes;
-  this->mrmlScene()->GetNodesByClass("vtkMRMLModelNode", modelNodes);
-  for (vtkMRMLNode* node : modelNodes)
-  {
-    vtkMRMLModelNode* mNode = vtkMRMLModelNode::SafeDownCast(node);
-    if (mNode && mNode->GetName())
-    {
-      std::string name = mNode->GetName();
-      if (name.rfind("Femur_Fragment", 0) == 0)
-      {
-        fragmentNodes.push_back(mNode);
-      }
-    }
-  }
-
+  std::vector<vtkMRMLModelNode*> fragmentNodes = CollectFragmentModels(this->mrmlScene());
+  fragmentNodes.erase(std::remove(fragmentNodes.begin(), fragmentNodes.end(), guideNode),
+    fragmentNodes.end());
   if (fragmentNodes.empty())
   {
-    QMessageBox::warning(this, "경고", "씬에서 골편 모델(Femur_Fragment_*)을 찾을 수 없습니다.");
+    QMessageBox::warning(this, "경고", "씬에서 정합할 골편 모델을 찾을 수 없습니다.");
     return;
+  }
+
+  if (d->reductionLogWidget)
+  {
+    d->reductionLogWidget->clear();
+    this->addLogMessage("========================================");
+    this->addLogMessage("ICP 자동 정복(Auto-Reduction) 연산 시작...");
+    this->addLogMessage("========================================");
   }
 
   double meanDistance = 0.0;
   int iterations = 0;
-  bool success = d->Logic->RunIcpRegistration(fragmentNodes, guideNode, meanDistance, iterations);
+  auto logCallback = [this](const std::string& msg) {
+    this->addLogMessage(QString::fromStdString(msg));
+  };
 
+  const bool success = d->Logic->RunIcpRegistration(
+    fragmentNodes, guideNode, meanDistance, iterations, logCallback);
   if (success)
   {
-    QString msg = QString("병합 ICP 자동 정합 완료!\n평균 정합 오차: %1 mm\n반복 횟수: %2 회")
-      .arg(meanDistance, 0, 'f', 4)
-      .arg(iterations);
-    QMessageBox::information(this, "정합 성공", msg);
-
+    if (d->reductionLogWidget)
+    {
+      this->addLogMessage("ICP 자동 정복이 성공적으로 완료되었습니다.");
+    }
+    QMessageBox::information(this, "정합 성공",
+      QString("병합 ICP 자동 정합 완료!\n평균 정합 오차: %1 mm\n반복 횟수: %2 회")
+        .arg(meanDistance, 0, 'f', 4).arg(iterations));
     this->updateFragmentTable();
   }
   else
@@ -1620,29 +2024,68 @@ void qSlicerFemurFracturePlannerCppModulePlannerDialog::onRunIcpReductionClicked
 void qSlicerFemurFracturePlannerCppModulePlannerDialog::onRunSurfaceSnapClicked()
 {
   Q_D(qSlicerFemurFracturePlannerCppModulePlannerDialog);
-  if (!d->Logic || !this->mrmlScene()) return;
-
-  vtkMRMLModelNode* frag1 = vtkMRMLModelNode::SafeDownCast(this->mrmlScene()->GetFirstNodeByName("Femur_Fragment_1"));
-  vtkMRMLModelNode* frag2 = vtkMRMLModelNode::SafeDownCast(this->mrmlScene()->GetFirstNodeByName("Femur_Fragment_2"));
-
-  if (!frag1 || !frag2)
+  if (!d->Logic || !this->mrmlScene())
   {
-    QMessageBox::warning(this, "경고", "골절면 스냅을 실행하려면 씬 내에 Femur_Fragment_1 및 Femur_Fragment_2 모델이 모두 존재해야 합니다.");
     return;
   }
 
-  double meanDistance = 0.0;
-  bool success = d->Logic->RunFractureSurfaceSnap(frag1, frag2, meanDistance);
+  std::vector<vtkMRMLModelNode*> fragments = CollectFragmentModels(this->mrmlScene());
+  if (fragments.size() < 2)
+  {
+    QMessageBox::warning(this, "경고", "골절면 스냅에는 서로 다른 골편 모델이 최소 2개 필요합니다.");
+    return;
+  }
 
+  vtkMRMLModelNode* moving = this->selectedFragmentNode();
+  if (!moving || !IsFragmentModel(moving))
+  {
+    moving = fragments.front();
+  }
+  vtkMRMLModelNode* fixed = nullptr;
+  for (vtkMRMLModelNode* fragment : fragments)
+  {
+    if (fragment != moving)
+    {
+      fixed = fragment;
+      break;
+    }
+  }
+  if (!moving || !fixed)
+  {
+    QMessageBox::warning(this, "경고", "서로 다른 두 골편을 선택할 수 없습니다.");
+    return;
+  }
+
+  if (d->reductionLogWidget)
+  {
+    d->reductionLogWidget->clear();
+    this->addLogMessage("========================================");
+    this->addLogMessage("골절면 정밀 스냅(Surface Snap) 연산 시작...");
+    this->addLogMessage("========================================");
+  }
+
+  double meanDistance = 0.0;
+  auto logCallback = [this](const std::string& msg) {
+    this->addLogMessage(QString::fromStdString(msg));
+  };
+
+  const bool success = d->Logic->RunFractureSurfaceSnap(moving, fixed, meanDistance, logCallback);
   if (success)
   {
-    QString msg = QString("골절면 스냅 정합 완료!\n정합 오차: %1 mm").arg(meanDistance, 0, 'f', 4);
-    QMessageBox::information(this, "정합 성공", msg);
+    if (d->reductionLogWidget)
+    {
+      this->addLogMessage("골절면 스냅 정합이 성공적으로 완료되었습니다.");
+    }
+    QMessageBox::information(this, "정합 성공",
+      QString("골절면 스냅 정합 완료!\n정합 오차: %1 mm").arg(meanDistance, 0, 'f', 4));
     this->updateFragmentTable();
   }
   else
   {
-    QMessageBox::warning(this, "정합 경고", QString("골절면 대응점 거리가 %1mm 이내인 쌍이 없거나 수집된 정밀 점의 개수가 부족합니다.\n\n수동 조작 기즈모를 이용해 두 골편 단면을 조금 더 근접시킨 후 다시 시도해 주세요.").arg(vtkSlicerFemurFracturePlannerCppLogic::SNAP_DISTANCE_LIMIT));
+    QMessageBox::warning(this, "정합 경고",
+      QString("골절면 대응점 거리가 %1 mm 이내인 쌍이 없거나 대응점 수가 부족합니다.\n\n"
+              "수동 기즈모로 두 골절면을 더 가깝게 배치한 뒤 다시 시도하세요.")
+        .arg(vtkSlicerFemurFracturePlannerCppLogic::SNAP_DISTANCE_LIMIT));
   }
 }
 
@@ -1650,35 +2093,140 @@ void qSlicerFemurFracturePlannerCppModulePlannerDialog::onRunSurfaceSnapClicked(
 void qSlicerFemurFracturePlannerCppModulePlannerDialog::onRunLandmarkMatchClicked()
 {
   Q_D(qSlicerFemurFracturePlannerCppModulePlannerDialog);
-  if (!d->Logic || !this->mrmlScene()) return;
-
-  vtkMRMLModelNode* frag1 = vtkMRMLModelNode::SafeDownCast(this->mrmlScene()->GetFirstNodeByName("Femur_Fragment_1"));
-  vtkMRMLModelNode* frag2 = vtkMRMLModelNode::SafeDownCast(this->mrmlScene()->GetFirstNodeByName("Femur_Fragment_2"));
-
-  if (!frag1 || !frag2)
+  if (!d->Logic || !this->mrmlScene() || !d->guideModelSelector)
   {
-    QMessageBox::warning(this, "경고", "마커 매칭을 실행하려면 Femur_Fragment_1 및 Femur_Fragment_2 모델이 모두 존재해야 합니다.");
     return;
   }
 
-  vtkMRMLNode* srcFid = this->mrmlScene()->GetFirstNodeByName("Targeting_Source_Fiducials");
-  vtkMRMLNode* tgtFid = this->mrmlScene()->GetFirstNodeByName("Targeting_Target_Fiducials");
-
-  if (!srcFid || !tgtFid)
+  vtkMRMLModelNode* targetNode = vtkMRMLModelNode::SafeDownCast(
+    d->guideModelSelector->currentNode());
+  if (!targetNode)
   {
-    QMessageBox::warning(this, "경고", "마커 정보 노드(Targeting_Source_Fiducials / Targeting_Target_Fiducials)가 존재하지 않습니다.");
+    QMessageBox::warning(this, "경고", "먼저 가이드 모델 또는 기준 골편을 선택하세요.");
+    return;
+  }
+  vtkMRMLModelNode* sourceNode = this->selectedFragmentNode();
+  if (!sourceNode)
+  {
+    QMessageBox::warning(this, "경고", "골편 표에서 움직일 대상 골편을 선택하세요.");
+    return;
+  }
+  if (sourceNode == targetNode)
+  {
+    QMessageBox::warning(this, "경고", "이동 골편과 기준 모델은 서로 달라야 합니다.");
     return;
   }
 
-  bool success = d->Logic->RunLandmarkRegistration(frag1, frag2, srcFid, tgtFid);
+  vtkMRMLMarkupsFiducialNode* sourceMarkers = vtkMRMLMarkupsFiducialNode::SafeDownCast(
+    this->mrmlScene()->GetFirstNodeByName(SOURCE_MARKERS_NAME));
+  vtkMRMLMarkupsFiducialNode* targetMarkers = vtkMRMLMarkupsFiducialNode::SafeDownCast(
+    this->mrmlScene()->GetFirstNodeByName(TARGET_MARKERS_NAME));
+  const bool markerNodesMissing = !sourceMarkers || !targetMarkers;
+
+  if (!sourceMarkers)
+  {
+    sourceMarkers = vtkMRMLMarkupsFiducialNode::SafeDownCast(
+      this->mrmlScene()->AddNewNodeByClass("vtkMRMLMarkupsFiducialNode", SOURCE_MARKERS_NAME));
+    if (sourceMarkers)
+    {
+      sourceMarkers->CreateDefaultDisplayNodes();
+      vtkMRMLMarkupsDisplayNode* displayNode = vtkMRMLMarkupsDisplayNode::SafeDownCast(
+        sourceMarkers->GetDisplayNode());
+      if (displayNode)
+      {
+        displayNode->SetSelectedColor(1.0, 1.0, 0.0);
+      }
+    }
+  }
+  if (!targetMarkers)
+  {
+    targetMarkers = vtkMRMLMarkupsFiducialNode::SafeDownCast(
+      this->mrmlScene()->AddNewNodeByClass("vtkMRMLMarkupsFiducialNode", TARGET_MARKERS_NAME));
+    if (targetMarkers)
+    {
+      targetMarkers->CreateDefaultDisplayNodes();
+      vtkMRMLMarkupsDisplayNode* displayNode = vtkMRMLMarkupsDisplayNode::SafeDownCast(
+        targetMarkers->GetDisplayNode());
+      if (displayNode)
+      {
+        displayNode->SetSelectedColor(0.0, 1.0, 1.0);
+      }
+    }
+  }
+  if (!sourceMarkers || !targetMarkers)
+  {
+    QMessageBox::critical(this, "오류", "마커 노드를 생성하지 못했습니다.");
+    return;
+  }
+
+  const bool startPlacement = markerNodesMissing ||
+    (sourceMarkers->GetNumberOfControlPoints() == 0
+     && targetMarkers->GetNumberOfControlPoints() == 0);
+  if (startPlacement)
+  {
+    vtkMRMLSelectionNode* selectionNode = vtkMRMLSelectionNode::SafeDownCast(
+      this->mrmlScene()->GetNodeByID("vtkMRMLSelectionNodeSingleton"));
+    vtkMRMLInteractionNode* interactionNode = vtkMRMLInteractionNode::SafeDownCast(
+      this->mrmlScene()->GetNodeByID("vtkMRMLInteractionNodeSingleton"));
+    if (selectionNode)
+    {
+      selectionNode->SetReferenceActivePlaceNodeClassName("vtkMRMLMarkupsFiducialNode");
+      selectionNode->SetActivePlaceNodeID(sourceMarkers->GetID());
+    }
+    if (interactionNode)
+    {
+      interactionNode->SetCurrentInteractionMode(vtkMRMLInteractionNode::Place);
+    }
+    QMessageBox::information(this, "마커 배치 안내",
+      "마커 노드를 생성하고 점 찍기 모드를 켰습니다.\n\n"
+      "1. 이동 골편 표면에 대응점 3개 이상을 찍습니다.\n"
+      "2. 이어서 기준 모델의 같은 위치에 같은 순서로 점을 찍습니다.\n"
+      "3. 모두 찍은 뒤 이 버튼을 다시 누르세요.\n\n"
+      "한 노드에 점을 연속으로 찍어도 짝수 개이면 앞/뒤 절반으로 자동 분리합니다.");
+    return;
+  }
+
+  const int sourceCount = sourceMarkers->GetNumberOfControlPoints();
+  if (sourceCount >= 6 && targetMarkers->GetNumberOfControlPoints() == 0
+      && sourceCount % 2 == 0)
+  {
+    const int halfCount = sourceCount / 2;
+    for (int index = halfCount; index < sourceCount; ++index)
+    {
+      double position[3] = {0.0, 0.0, 0.0};
+      sourceMarkers->GetNthControlPointPositionWorld(index, position);
+      targetMarkers->AddControlPointWorld(vtkVector3d(position[0], position[1], position[2]));
+    }
+    for (int index = sourceCount - 1; index >= halfCount; --index)
+    {
+      sourceMarkers->RemoveNthControlPoint(index);
+    }
+  }
+
+  const int finalSourceCount = sourceMarkers->GetNumberOfControlPoints();
+  const int finalTargetCount = targetMarkers->GetNumberOfControlPoints();
+  if (finalSourceCount < 3 || finalTargetCount < 3)
+  {
+    QMessageBox::warning(this, "경고", "Source와 Target에 각각 최소 3개의 대응점이 필요합니다.");
+    return;
+  }
+  if (finalSourceCount != finalTargetCount)
+  {
+    QMessageBox::warning(this, "경고", "Source와 Target 마커의 점 개수가 일치하지 않습니다.");
+    return;
+  }
+
+  const bool success = d->Logic->RunLandmarkRegistration(
+    sourceNode, targetNode, sourceMarkers, targetMarkers);
   if (success)
   {
-    QMessageBox::information(this, "성공", "마커 기반 랜드마크 정합을 성공적으로 완료했습니다.");
+    QMessageBox::information(this, "성공", "마커 기반 랜드마크 정합을 완료했습니다.");
     this->updateFragmentTable();
   }
   else
   {
-    QMessageBox::critical(this, "실패", "정합에 필요한 제어점 개수가 3점 미만이거나 변환 도중 오류가 발생했습니다.");
+    QMessageBox::critical(this, "실패",
+      "대응점이 일직선에 가깝거나 변환 행렬 계산에 실패했습니다. 점 위치와 순서를 확인하세요.");
   }
 }
 
@@ -1686,68 +2234,63 @@ void qSlicerFemurFracturePlannerCppModulePlannerDialog::onRunLandmarkMatchClicke
 void qSlicerFemurFracturePlannerCppModulePlannerDialog::onRunMaskMatchClicked()
 {
   Q_D(qSlicerFemurFracturePlannerCppModulePlannerDialog);
-  if (!d->Logic || !d->activeSegmentationSelector || !this->mrmlScene()) return;
+  if (!d->Logic || !d->activeSegmentationSelector || !this->mrmlScene()
+      || !d->guideModelSelector)
+  {
+    return;
+  }
 
-  // 타겟: 가이드 모델 셀렉터에서 선택된 모델 (=고정 기준)
-  vtkMRMLModelNode* guideNode = vtkMRMLModelNode::SafeDownCast(d->guideModelSelector->currentNode());
+  vtkMRMLModelNode* guideNode = vtkMRMLModelNode::SafeDownCast(
+    d->guideModelSelector->currentNode());
   if (!guideNode)
   {
-    QMessageBox::warning(this, "경고", "먼저 타겟 뉴를 위 '가이드 모델(또는 기준 골편)' 창에서 선택하세요.");
+    QMessageBox::warning(this, "경고", "먼저 가이드 모델 또는 기준 골편을 선택하세요.");
     return;
   }
 
-  // 소스: 테이블에서 선택된 고편 (=이동 대상)
-  QList<QTableWidgetItem*> selectedItems = d->fragmentTableWidget->selectedItems();
-  if (selectedItems.isEmpty())
-  {
-    QMessageBox::warning(this, "경고", "표에서 움직일 대상 고편을 1개 선택하세요.");
-    return;
-  }
-  QString fragmentNodeId = selectedItems.first()->data(Qt::UserRole).toString();
-  vtkMRMLModelNode* fragmentNode = vtkMRMLModelNode::SafeDownCast(
-    this->mrmlScene()->GetNodeByID(fragmentNodeId.toStdString().c_str()));
+  vtkMRMLModelNode* fragmentNode = this->selectedFragmentNode();
   if (!fragmentNode)
   {
-    QMessageBox::warning(this, "경고", "선택된 고편 노드를 창에서 찾을 수 없습니다.");
+    QMessageBox::warning(this, "경고", "골편 표에서 움직일 대상 골편을 선택하세요.");
+    return;
+  }
+  if (fragmentNode == guideNode)
+  {
+    QMessageBox::warning(this, "경고", "이동 골편과 기준 모델은 서로 달라야 합니다.");
     return;
   }
 
-  vtkMRMLSegmentationNode* segNode = vtkMRMLSegmentationNode::SafeDownCast(d->activeSegmentationSelector->currentNode());
-  if (!segNode)
+  vtkMRMLSegmentationNode* segNode = vtkMRMLSegmentationNode::SafeDownCast(
+    d->activeSegmentationSelector->currentNode());
+  if (!segNode || !segNode->GetSegmentation())
   {
-    QMessageBox::warning(this, "경고", "먼저 입력 세그멘테이션 노드를 5번 영역에서 지정하세요 (4번 에디터와 연동됨).");
+    QMessageBox::warning(this, "경고", "마스크를 저장할 세그멘테이션 노드를 선택하세요.");
     return;
   }
 
   vtkSegmentation* segmentation = segNode->GetSegmentation();
-  std::string sourceId = segmentation ? segmentation->GetSegmentIdBySegmentName("Targeting_Source_ROI") : "";
-  std::string targetId = segmentation ? segmentation->GetSegmentIdBySegmentName("Targeting_Target_ROI") : "";
-
-  // 세그먼트가 없으면 자동 생성 후 안내 후 종료
+  std::string sourceId = segmentation->GetSegmentIdBySegmentName("Targeting_Source_ROI");
+  std::string targetId = segmentation->GetSegmentIdBySegmentName("Targeting_Target_ROI");
   if (sourceId.empty() || targetId.empty())
   {
-    if (segmentation)
+    double yellowColor[3] = {1.0, 1.0, 0.0};
+    double cyanColor[3] = {0.0, 1.0, 1.0};
+    if (sourceId.empty())
     {
-      double yellowColor[3] = {1.0, 1.0, 0.0};
-      double cyanColor[3]   = {0.0, 1.0, 1.0};
-      if (sourceId.empty())
-      {
-        segmentation->AddEmptySegment("Targeting_Source_ROI", "Targeting_Source_ROI", yellowColor);
-      }
-      if (targetId.empty())
-      {
-        segmentation->AddEmptySegment("Targeting_Target_ROI", "Targeting_Target_ROI", cyanColor);
-      }
+      segmentation->AddEmptySegment("Targeting_Source_ROI", "Targeting_Source_ROI", yellowColor);
+    }
+    if (targetId.empty())
+    {
+      segmentation->AddEmptySegment("Targeting_Target_ROI", "Targeting_Target_ROI", cyanColor);
     }
     QMessageBox::information(this, "안내",
-      "세그멘테이션 라벨이 추가되었습니다.\n\n"
-      "4번 Segment Editor 탭에서 Paint 브러시를 이용해\n"
-      "움직일 골편 단면과 타겟 뉴(가이드 또는 기준 골편) 단면을 각각 색칠한 뒤\n"
-      "이 버튼을 다시 눌러주세요.");
+      "Targeting_Source_ROI와 Targeting_Target_ROI 세그먼트를 생성했습니다.\n\n"
+      "Segment Editor에서 이동 골편과 기준 모델의 대응 표면 영역을 각각 색칠한 뒤 다시 실행하세요.");
     return;
   }
 
-  bool success = d->Logic->RunMaskedIcpRegistration(fragmentNode, guideNode, segNode, sourceId, targetId);
+  const bool success = d->Logic->RunMaskedIcpRegistration(
+    fragmentNode, guideNode, segNode, sourceId, targetId);
   if (success)
   {
     QMessageBox::information(this, "성공", "색칠 영역 기반 마스킹 ICP 정합을 완료했습니다.");
@@ -1755,7 +2298,8 @@ void qSlicerFemurFracturePlannerCppModulePlannerDialog::onRunMaskMatchClicked()
   }
   else
   {
-    QMessageBox::critical(this, "실패", "마스킹 영역 추출에 실패했거나 정합 지점이 없습니다. 색칠을 했는지 확인하세요.");
+    QMessageBox::critical(this, "실패",
+      "마스크가 닫힌 표면을 만들지 못했거나 내부 표면점이 부족합니다. 색칠 영역을 확인하세요.");
   }
 }
 
@@ -1764,11 +2308,11 @@ void qSlicerFemurFracturePlannerCppModulePlannerDialog::onClearMarkersClicked()
 {
   if (!this->mrmlScene()) return;
 
-  // 파이쓬 원본 동일: 노드를 삭제하지 않고 포인트만 제거(RemoveAllControlPoints)
+  // Python 원본 동일: 노드를 삭제하지 않고 포인트만 제거(RemoveAllControlPoints)
   vtkMRMLMarkupsFiducialNode* srcFid = vtkMRMLMarkupsFiducialNode::SafeDownCast(
-    this->mrmlScene()->GetFirstNodeByName("Targeting_Source_Markers"));
+    this->mrmlScene()->GetFirstNodeByName(SOURCE_MARKERS_NAME));
   vtkMRMLMarkupsFiducialNode* tgtFid = vtkMRMLMarkupsFiducialNode::SafeDownCast(
-    this->mrmlScene()->GetFirstNodeByName("Targeting_Target_Markers"));
+    this->mrmlScene()->GetFirstNodeByName(TARGET_MARKERS_NAME));
 
   bool cleared = false;
   if (srcFid)
@@ -1784,7 +2328,7 @@ void qSlicerFemurFracturePlannerCppModulePlannerDialog::onClearMarkersClicked()
 
   if (cleared)
   {
-    QMessageBox::information(this, "알림", "마커(점)가 모두 지워졌습니다. 이제 다시 정확한 위치에 순서대로 점을 직어주세요.");
+    QMessageBox::information(this, "알림", "마커(점)가 모두 지워졌습니다. 이제 다시 정확한 위치에 순서대로 점을 찍어주세요.");
   }
   else
   {
@@ -1833,4 +2377,20 @@ void qSlicerFemurFracturePlannerCppModulePlannerDialog::onClearMasksClicked()
   {
     QMessageBox::information(this, "알림", "지울 마스킹 세그먼트(Targeting_Source_ROI, Targeting_Target_ROI)가 존재하지 않습니다.");
   }
+}
+
+//-----------------------------------------------------------------------------
+void qSlicerFemurFracturePlannerCppModulePlannerDialog::addLogMessage(const QString& message)
+{
+  Q_D(qSlicerFemurFracturePlannerCppModulePlannerDialog);
+  if (!d->reductionLogWidget)
+  {
+    return;
+  }
+  QString timeStr = QTime::currentTime().toString("hh:mm:ss");
+  d->reductionLogWidget->append(QString("[%1] %2").arg(timeStr).arg(message));
+  d->reductionLogWidget->ensureCursorVisible();
+  
+  // UI 실시간 갱신 강제 수행
+  QCoreApplication::processEvents();
 }

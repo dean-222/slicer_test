@@ -17,11 +17,17 @@
 
 /*
 File Name: vtkSlicerFemurFracturePlannerCppLogic.h
-Version: v0-3.0.0
-Date: 2026-06-30
+Version: v0-5.0.0
+Date: 2026-07-01
 Description: 대퇴골 골절 수술 계획을 위한 로직 연산 클래스 정의 (볼륨 렌더링 및 변환)
 
 Version History:
+- v0-5.0.0 (2026-07-01)
+  - RunIcpRegistration 및 RunFractureSurfaceSnap에 std::function 실시간 로그 콜백 파라미터 추가 (X 증가)
+- v0-4.0.1 (2026-06-30)
+  - 비선형 부모 Transform에서 계층을 변경하지 않고 실패 처리하며 Surface Snap 월드 메쉬 변환 검증을 보강 (Z 증가)
+- v0-4.0.0 (2026-06-30)
+  - 완전 이식 보완: 헤더 self-contained화, Python 기준 ICP/Snap 파라미터 동기화, 정합 입력 검증 강화 (X 증가)
 - v0-3.0.0 (2026-06-30)
   - 5단계: 골절면 정밀 스냅(RunFractureSurfaceSnap) 및 수동/마스크 정합(RunLandmarkRegistration, RunMaskedIcpRegistration) API 추가 (X 증가)
 - v0-2.0.0 (2026-06-30)
@@ -50,6 +56,9 @@ Version History:
 
 // STD includes
 #include <cstdlib>
+#include <string>
+#include <vector>
+#include <functional>
 
 #include "vtkSlicerFemurFracturePlannerCppModuleLogicExport.h"
 
@@ -82,12 +91,14 @@ public:
   bool RunIcpRegistration(const std::vector<vtkMRMLModelNode*>& fragmentModelNodes, 
                            vtkMRMLModelNode* guideModelNode, 
                            double& meanDistance, 
-                           int& iterations);
+                           int& iterations,
+                           std::function<void(const std::string&)> logCallback = nullptr);
 
   // 5단계: 골절면 정밀 스냅 및 수동/마스크 정합 API
   bool RunFractureSurfaceSnap(vtkMRMLModelNode* frag1Node, 
                               vtkMRMLModelNode* frag2Node, 
-                              double& meanDistance);
+                              double& meanDistance,
+                              std::function<void(const std::string&)> logCallback = nullptr);
   
   bool RunLandmarkRegistration(vtkMRMLModelNode* sourceNode, 
                                vtkMRMLModelNode* targetNode, 
@@ -110,13 +121,13 @@ public:
   static constexpr int MIN_FRAGMENT_POINTS = 200;
 
   // 4단계 ICP 파라미터 상수
-  static constexpr int ICP_MAX_ITERATIONS = 100;
-  static constexpr int ICP_MAX_LANDMARKS = 200;
+  static constexpr int ICP_MAX_ITERATIONS = 300;
+  static constexpr int ICP_MAX_LANDMARKS = 1000;
   static constexpr double ICP_CONVERGENCE_DISTANCE = 0.01;
 
   // 5단계 제어용 상수
   static constexpr double SNAP_DISTANCE_LIMIT = 25.0;
-  static constexpr int SNAP_MIN_POINTS = 5;
+  static constexpr int SNAP_MIN_POINTS = 3;
 
 protected:
   vtkSlicerFemurFracturePlannerCppLogic();

@@ -1,10 +1,12 @@
 """
 File Name: FemurFracturePlannerWorkflow.py
-Version: v1-0.0.0
+Version: v1-0.0.1
 Date: 2026-06-26
 Description: 대퇴골 골절 계획 모듈의 입력, 렌더링, 회전, 세그멘테이션, 가이드 모델 작업 흐름을 담당한다.
 
 Version History:
+- v1-0.0.1 (2026-06-26)
+  - onRotationAngleChanged 함수에서 현재 UI에 선택된 가이드 모델 노드를 획득하여 rotateVolume 호출 시 전달하도록 매개변수 연동 추가 (Z 증가)
 - v1-0.0.0 (2026-06-26)
   - 골절면 정밀 스냅 단차 정제 및 병합 ICP 안정화 완료하여 최초 정식 릴리스 출시 (v1-0.0.0 지정)
 - v0-2.1.2 (2026-06-26)
@@ -317,8 +319,12 @@ class FemurFracturePlannerWorkflowMixin:
             return
 
         axis = self.getSelectedRotationAxis()
-        # 회전 계산은 Logic에 맡기고, UI 핸들러는 현재 입력값만 전달한다.
-        self.logic.rotateVolume(inputNode, axis, value)
+        
+        # 현재 UI 가이드 선택기에 선택된 가이드 노드 획득
+        guideNode = self.ui.guideModelSelector.currentNode()
+
+        # 회전 계산은 Logic에 맡기고, UI 핸들러는 현재 입력값과 가이드 노드를 함께 전달한다.
+        self.logic.rotateVolume(inputNode, axis, value, guideNode)
         slicer.util.forceRenderAllViews()
 
     def onResetRotationClicked(self) -> None:

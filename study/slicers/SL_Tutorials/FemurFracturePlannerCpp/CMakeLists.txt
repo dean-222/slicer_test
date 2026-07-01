@@ -19,6 +19,7 @@ set(MODULE_INCLUDE_DIRECTORIES
   ${CMAKE_CURRENT_BINARY_DIR}/Widgets
   ${Slicer_ModuleWidgets_INCLUDE_DIRS}
   ${Slicer_ModuleMRML_INCLUDE_DIRS}
+  ${vtkSlicerMarkupsModuleMRML_INCLUDE_DIRS}
   )
 
 set(MODULE_SRCS
@@ -40,6 +41,7 @@ set(MODULE_TARGET_LIBRARIES
   qSlicer${MODULE_NAME}ModuleWidgets
   qSlicerSegmentationsModuleWidgets
   vtkSlicerSegmentationsModuleLogic
+  vtkSlicerMarkupsModuleMRML
   )
 
 set(MODULE_RESOURCES

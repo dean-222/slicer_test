@@ -147,6 +147,19 @@ Version History:
             </property>
            </widget>
           </item>
+          <item>
+           <widget class="QPushButton" name="maskedEdgeDetectionButton">
+            <property name="text">
+             <string>마스킹 에지 검출</string>
+            </property>
+            <property name="toolTip">
+             <string>현재 뼈 임계값 미만을 공기(-1000 HU)로 마스킹한 뒤 3D 경계를 검출합니다.</string>
+            </property>
+            <property name="styleSheet">
+             <string>font-weight: bold; background-color: #fff3e0;</string>
+            </property>
+           </widget>
+          </item>
          </layout>
         </item>
        </layout>
@@ -599,7 +612,39 @@ Version History:
            </layout>
           </widget>
          </item>
-        </layout>
+          <item row="5" column="0">
+           <widget class="QLabel" name="reductionLogLabel">
+            <property name="text">
+             <string>진행 로그:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="5" column="1">
+           <widget class="QTextEdit" name="reductionLogWidget">
+            <property name="readOnly">
+             <bool>true</bool>
+            </property>
+            <property name="placeholderText">
+             <string>여기에 가상 정합(ICP/스냅) 진행 로그가 표시됩니다...</string>
+            </property>
+            <property name="minimumSize">
+             <size>
+              <width>0</width>
+              <height>100</height>
+             </size>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>16777215</width>
+              <height>140</height>
+             </size>
+            </property>
+            <property name="styleSheet">
+             <string>font-family: Consolas, monospace; font-size: 9pt; background-color: #fafafa; border: 1px solid #ddd; border-radius: 3px;</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
        </widget>
      </item>
 

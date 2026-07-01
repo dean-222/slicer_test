@@ -4,6 +4,10 @@ cmake_minimum_required(VERSION 3.20.6...3.22.6 FATAL_ERROR)
 # 익스텐션(Extension) 프로젝트 이름 설정
 project(SL_Tutorials)
 
+if(MSVC)
+  add_compile_options(/utf-8)
+endif()
+
 #-----------------------------------------------------------------------------
 # 익스텐션 메타 정보 설정 (Slicer Extension Manager 등에 표시되는 정보)
 #-----------------------------------------------------------------------------
@@ -34,6 +38,7 @@ include(${Slicer_USE_FILE})
 # t_ApplyThreshold 디렉토리를 하위 빌드 디렉토리로 추가 (모듈 빌드 대상 포함)
 add_subdirectory(t_ApplyThreshold)
 add_subdirectory(FemurFracturePlanner)
+add_subdirectory(FemurFracturePlannerCpp)
 ## NEXT_MODULE
 
 #-----------------------------------------------------------------------------

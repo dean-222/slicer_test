@@ -1,10 +1,14 @@
 """
 File Name: FemurFracturePlannerLogic.py
-Version: v1-0.0.0
+Version: v1-0.0.2
 Date: 2026-06-26
 Description: 대퇴골 골절 계획 모듈의 Volume Rendering, 골편 분리, 모델 정합 계산 로직을 담당한다.
 
 Version History:
+- v1-0.0.2 (2026-06-26)
+  - rotateVolume 함수에 guideNode 매개변수를 추가하고, 회전 대상 수집 루프에서 이름 매칭 패턴(Femur_Fragment*, *_Mirrored) 외에 외부 로드된 가이드 노드도 정확히 감지하여 회전 계층에 포함하도록 보완 (Z 증가)
+- v1-0.0.1 (2026-06-26)
+  - rotateVolume 함수 내에서 골편 및 미러링 가이드 모델의 개별 변환 노드 계층 구조를 보존하고, 개별 변환 노드의 상위 부모로 회전 변환 노드를 연결하도록 계층 상속 구조 보정 (Z 증가)
 - v1-0.0.0 (2026-06-26)
   - 골절면 정밀 스냅 단차 정제 및 병합 ICP 안정화 완료하여 최초 정식 릴리스 출시 (v1-0.0.0 지정)
 - v0-3.1.2 (2026-06-26)
@@ -383,18 +387,19 @@ class FemurFracturePlannerLogic(ScriptedLoadableModuleLogic):
 
         displayNode.Modified()
 
-    def rotateVolume(self, volumeNode: vtkMRMLScalarVolumeNode, axis: str, angle: float) -> None:
+    def rotateVolume(self, volumeNode: vtkMRMLScalarVolumeNode, axis: str, angle: float, guideNode: slicer.vtkMRMLModelNode = None) -> None:
         """
-        지정된 스칼라 볼륨 노드와 이 볼륨에 동기화된 세그멘테이션, 추출된 골편 모델들을 동시에 회전시키는 함수이다.
+        지정된 스칼라 볼륨 노드와 이 볼륨에 동기화된 세그멘테이션, 추출된 골편 모델 및 가이드 모델을 동시에 회전시키는 함수이다.
         
         메쉬 정점의 좌표 데이터를 직접 수정하지 않고, 부모 선형 변환 노드(vtkMRMLLinearTransformNode)를 생성하여 
-        볼륨, 세그멘테이션 및 분리된 뼈 파편(Model) 노드들을 이 변환 노드에 종속(Parent-Child 구조)시킨 뒤 
+        볼륨, 세그멘테이션, 분리된 뼈 파편(Model) 및 가이드 노드들을 이 변환 노드에 종속(Parent-Child 구조)시킨 뒤 
         변환 노드의 로컬 4x4 행렬을 제어한다. 이를 통해 하위 노드들의 상대적 위치 관계를 그대로 유지하며 고속 회전한다.
         
         Args:
             volumeNode: 회전의 중심 기준이 될 스칼라 볼륨 노드
             axis: 회전축 ("X", "Y", "Z" 중 하나)
             angle: 회전할 각도 (단위: Degree, 범위: -180 ~ +180)
+            guideNode: 현재 지정된 수술 계획 기준 가이드 모델 노드 (임의의 이름 대응용)
         """
         if not volumeNode:
             return
@@ -419,12 +424,27 @@ class FemurFracturePlannerLogic(ScriptedLoadableModuleLogic):
             if segNode.GetParentTransformNode() != transformNode:
                 segNode.SetAndObserveTransformNodeID(transformNode.GetID())
 
-        # 분리된 골편 모델(이름이 'Femur_Fragment'로 시작)들도 이 변환 노드의 자식으로 종속
+        # 분리된 골편 모델(Femur_Fragment*) 및 미러링 가이드 모델(*_Mirrored)들과 전달된 guideNode를 회전 자식으로 계층적 종속
         modelNodes = slicer.mrmlScene.GetNodesByClass("vtkMRMLModelNode")
         for i in range(modelNodes.GetNumberOfItems()):
             modelNode = modelNodes.GetItemAsObject(i)
-            if modelNode.GetName().startswith("Femur_Fragment") and modelNode.GetParentTransformNode() != transformNode:
-                modelNode.SetAndObserveTransformNodeID(transformNode.GetID())
+            name = modelNode.GetName()
+            
+            # 이름이 매칭되거나, guideNode로 명시적 전달된 경우 회전 대상으로 지정
+            isTarget = name.startswith("Femur_Fragment") or name.endswith("_Mirrored") or (guideNode and modelNode.GetID() == guideNode.GetID())
+            if isTarget:
+                # 모델 노드에 직접 transformNode를 꽂으면 개별 수동 조작 행렬이 유실된다.
+                # 대신 모델 노드의 개별 변환 노드(Parent)를 획득하여, 그 변환 노드의 부모로 transformNode를 설정한다.
+                parentTransform = modelNode.GetParentTransformNode()
+                if not parentTransform or not parentTransform.IsA("vtkMRMLLinearTransformNode"):
+                    # 개별 변환 노드가 존재하지 않으면 새로 생성하여 바인딩
+                    parentTransform = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLinearTransformNode")
+                    parentTransform.SetName(f"{name}_Transform")
+                    modelNode.SetAndObserveTransformNodeID(parentTransform.GetID())
+                
+                # 개별 변환 노드의 상위 부모로 volume 회전 변환 노드(transformNode)를 지정
+                if parentTransform.GetParentTransformNode() != transformNode:
+                    parentTransform.SetAndObserveTransformNodeID(transformNode.GetID())
 
         # 회전 변환 행렬 구성
         # vtkTransform은 사람이 이해하기 쉬운 회전 명령을 4x4 행렬로 바꿔 주는 도구이다.

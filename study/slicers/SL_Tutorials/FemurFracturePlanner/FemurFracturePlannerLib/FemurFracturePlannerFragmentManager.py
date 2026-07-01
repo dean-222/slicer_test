@@ -1,10 +1,12 @@
 """
 File Name: FemurFracturePlannerFragmentManager.py
-Version: v0-0.1.3
-Date: 2026-06-25
+Version: v0-0.1.4
+Date: 2026-06-26
 Description: 대퇴골 골절 계획 모듈의 Fragment Manager UI, 골편 표시 제어, 선택 추적 로직을 담당한다.
 
 Version History:
+- v0-0.1.4 (2026-06-26)
+  - onActiveTransformNodeModified 함수 내에서 골편의 로컬 Bounds 중심 좌표에 worldMatrix를 곱해주어, 3D 수동 조작 시 UI 수치 패널의 Position 정보가 실시간으로 갱신되도록 버그 수정 (Z 증가)
 - v0-0.1.3 (2026-06-25)
   - 골편 생성 시 골편 관리자 표의 색상이 실제 3D 뷰어의 색상과 불일치하는 버그 수정, 그리고 미러링 가이드 삭제 시 원본 가이드 골편까지 함께 씬에서 제거하도록 연동 추가 (Z 증가)
 - v0-0.1.2 (2026-06-25)
@@ -447,7 +449,12 @@ class FemurFracturePlannerFragmentManagerMixin:
             cx = (bounds[0] + bounds[1]) / 2.0
             cy = (bounds[2] + bounds[3]) / 2.0
             cz = (bounds[4] + bounds[5]) / 2.0
-            position = (cx, cy, cz)
+            
+            # [수정] 로컬 공간 중심점 좌표에 월드 변환 행렬을 적용하여 3차원 월드 공간 상의 실제 물리적 무게 중심 산출
+            point_local = [cx, cy, cz, 1.0]
+            point_world = [0.0, 0.0, 0.0, 1.0]
+            worldMatrix.MultiplyPoint(point_local, point_world)
+            position = (point_world[0], point_world[1], point_world[2])
         else:
             position = transform.GetPosition()
 

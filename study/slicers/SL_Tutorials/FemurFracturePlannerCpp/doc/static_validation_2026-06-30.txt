@@ -1,0 +1,30 @@
+FemurFracturePlannerCpp 완전 이식 보완본 - 정적 검증 결과
+검증일: 2026-06-30
+대상: /mnt/data/_ffp_cpp_patched
+
+[PASS] 필수 파일 존재: 8개 확인
+[PASS] UTF-8/널 문자: 텍스트 파일 모두 UTF-8 해석 가능
+[PASS] Qt Designer UI XML: 정상 파싱, object 109개
+[PASS] C++ 중괄호 균형: 모든 .h/.cxx 통과
+[PASS] 헤더 include guard: 불일치 없음
+[PASS] PlannerDialog 중복 메서드 정의: 45개 정의, 중복 없음
+[PASS] PlannerDialog 선언/정의 대응: 정의된 메서드가 헤더에 선언됨
+[PASS] Logic 중복 메서드 정의: 21개 정의, 중복 없음
+[PASS] Logic 선언/정의 대응: 정의된 메서드가 헤더에 선언됨
+[PASS] UI object 참조: 41개 참조가 UI 또는 Private 멤버와 대응
+[PASS] 일반/마스킹 에지 버튼 분리: 구현 흔적 확인
+[PASS] 마커 이름 일치: 구현 흔적 확인
+[PASS] MRML Parameter Node: 구현 흔적 확인
+[PASS] Scene 생명주기: 구현 흔적 확인
+[PASS] 골편 속성 식별: 구현 흔적 확인
+[PASS] 공통 World delta: 구현 흔적 확인
+[PASS] Landmark 비공선 검증: 구현 흔적 확인
+[PASS] Markups CMake 링크: 구현 흔적 확인
+[PASS] C++ 테스트 소스: 구현 흔적 확인
+[PASS] 구형 마커 이름 제거: 불일치 이름 없음
+[WARN] 실제 Slicer 빌드: 이 환경에는 Slicer 5.10 빌드 트리/SDK가 없어 CMake 구성·MSVC 컴파일·런타임 실행은 미검증
+[WARN] 알고리즘 잔여 과제: Surface Snap의 World Z 장축 가정, 원점 기준 X Mirror, 임상 정확도 지표는 후속 검증 필요
+
+요약: PASS 20 / WARN 2 / FAIL 0
+
+주의: 정적 검증은 실제 3D Slicer 5.10 Release 빌드 및 임상 데이터 동작 검증을 대체하지 않습니다.

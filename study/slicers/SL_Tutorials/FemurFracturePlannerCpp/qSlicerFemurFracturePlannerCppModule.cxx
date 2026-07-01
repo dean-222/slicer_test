@@ -17,11 +17,13 @@
 
 /*
 File Name: qSlicerFemurFracturePlannerCppModule.cxx
-Version: v0-2.0.2
+Version: v0-2.1.0
 Date: 2026-06-30
 Description: 메인 모듈 로딩 및 생명주기 관리 클래스 구현 (의존성 로드 순서 수정)
 
 Version History:
+- v0-2.1.0 (2026-06-30)
+  - 완전 이식에 필요한 Segmentations/Volumes/VolumeRendering/Markups 런타임 의존성 명시 (Y 증가)
 - v0-2.0.2 (2026-06-30)
   - dependencies()에 Segmentations 의존성을 명시하여 런타임 플러그인 로드 오류 해결 (Z 증가)
 - v0-2.0.0 (2026-06-30)
@@ -90,8 +92,8 @@ QStringList qSlicerFemurFracturePlannerCppModule::categories() const
 //-----------------------------------------------------------------------------
 QStringList qSlicerFemurFracturePlannerCppModule::dependencies() const
 {
-  // Segmentations 모듈이 먼저 정상 메모리 로드되어 있어야 플러그인 로더가 에러 없이 구동됩니다.
-  return QStringList() << "Segmentations";
+  // 실제 로직에서 사용하는 Slicer 모듈을 로더가 먼저 초기화하도록 명시한다.
+  return QStringList() << "Segmentations" << "Volumes" << "VolumeRendering" << "Markups";
 }
 
 //-----------------------------------------------------------------------------

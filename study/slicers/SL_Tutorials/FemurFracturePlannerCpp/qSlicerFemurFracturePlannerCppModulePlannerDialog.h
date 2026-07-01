@@ -1,10 +1,14 @@
 /*
 File Name: qSlicerFemurFracturePlannerCppModulePlannerDialog.h
-Version: v0-5.0.0
-Date: 2026-06-30
+Version: v0-7.0.0
+Date: 2026-07-01
 Description: 대퇴골 골절 수술 계획을 위한 독립 팝업 다이얼로그 클래스 정의 (Slicer 씬 연동 추가)
 
 Version History:
+- v0-7.0.0 (2026-07-01)
+  - 가상 뼈 정복 연산 실시간 로그 출력을 위한 addLogMessage 헬퍼 함수 추가 (X 증가)
+- v0-6.0.0 (2026-06-30)
+  - 완전 이식 보완: MRML 상태 저장/복원, Scene 생명주기, 마커 워크플로우, 일반/마스킹 에지 분리 (X 증가)
 - v0-5.0.0 (2026-06-30)
   - 5단계: 골절면 정밀 스냅 및 수동/마스크 정합용 slots 추가 (X 증가)
 - v0-4.0.2 (2026-06-30)
@@ -42,7 +46,7 @@ Version History:
 */
 
 #ifndef __qSlicerFemurFracturePlannerCppModulePlannerDialog_h
-#define __vtkSlicerFemurFracturePlannerCppModulePlannerDialog_h
+#define __qSlicerFemurFracturePlannerCppModulePlannerDialog_h
 
 #include "qMRMLWidget.h"
 #include <QScopedPointer>
@@ -52,8 +56,10 @@ class qSlicerFemurFracturePlannerCppModulePlannerDialogPrivate;
 class vtkMRMLScene;
 class vtkMRMLNode;
 class vtkSlicerFemurFracturePlannerCppLogic;
+class vtkMRMLModelNode;
 class QTableWidgetItem;
 class QPushButton;
+class QCloseEvent;
 
 class qSlicerFemurFracturePlannerCppModulePlannerDialog : public qMRMLWidget
 {
@@ -82,6 +88,7 @@ private slots:
   void onRotate90Clicked();
   void onInvertIntensityClicked();
   void onEdgeDetectionClicked();
+  void onMaskedEdgeDetectionClicked();
   void onLoadVolumeClicked();
   void onLoadDicomClicked();
   void onLoadGuideClicked();
@@ -112,7 +119,17 @@ private slots:
   void onClearMarkersClicked();
   void onClearMasksClicked();
 
+  // MRML Scene 생명주기
+  void onMRMLSceneStartClose();
+  void onMRMLSceneEndClose();
+  void onMRMLSceneChanged();
+
 private:
+  vtkMRMLModelNode* selectedFragmentNode();
+  void updateParameterNodeFromUi();
+  void restoreUiFromParameterNode();
+  void addLogMessage(const QString& message);
+
   QScopedPointer<qSlicerFemurFracturePlannerCppModulePlannerDialogPrivate> d_ptr;
 
   Q_DECLARE_PRIVATE(qSlicerFemurFracturePlannerCppModulePlannerDialog);
